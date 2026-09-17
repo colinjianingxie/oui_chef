@@ -8,7 +8,6 @@ final class CookingCoreTests: XCTestCase {
         let catalog = try RecipeCatalog.bundled()
         var session = try CookingSession(recipe: XCTUnwrap(catalog.recipes.first { $0.id == id }))
         session.confirmedIngredients = Set(session.recipe.ingredients.map(\.id))
-        session.confirmedTools = Set(session.recipe.tools)
         session.labelsChecked = true
         try session.completePreparation(at: now)
         return session
@@ -117,7 +116,6 @@ final class CookingCoreTests: XCTestCase {
         XCTAssertFalse(session.labelsChecked)
         XCTAssertTrue(session.confirmedTools.isEmpty)
         XCTAssertThrowsError(try session.completePreparation(at: now))
-        session.confirmedTools = Set(recipe.tools)
         session.labelsChecked = true
         XCTAssertTrue(session.checksComplete)
         XCTAssertFalse(session.ready)

@@ -15,8 +15,9 @@ The iOS app uses Apple frameworks, Firebase Core/Auth, and Google Sign-In throug
 - Free starter recipes attributed to **Anonymous Chef**, with a Free category; no subscription is required.
 - Optional Apple, email/password, Google, and phone account screens, account linking, password reset, verification, sign-out, and account deletion.
 - Separate local preferences/history for each signed-in account. The first sign-in adopts a guest kitchen only if the account has no saved kitchen on this iPhone.
-- Three JSON recipe graphs: spaghetti, yeasted bread, margarita. Stable ingredient/state IDs, dependencies, equipment checks, actions, waits, and checkpoints.
-- Ingredient/tool/label confirmation before starting; dietary and known-allergen restrictions, including compound-food lookup and unknown composition.
+- Three JSON recipe graphs: spaghetti, yeasted bread, margarita. Stable ingredient/state IDs, dependencies, equipment scheduling, actions, waits, and checkpoints.
+- Manual ingredient and product-label confirmation before starting; kitchen items are recommendations. Preferences apply to each ingredient and its constituents, with recipe-specific substitutions and taste-ratio previews.
+- A shared catalog of 66 foods in 31 hierarchical categories, ingredient search, saved dislikes, and sprite asset slots. See the [ingredient catalog and growth plan](docs/INGREDIENT_CATALOG.md).
 - Independent persisted timer deadlines, local notification reminders, readiness confirmation, and checkpoint rechecks. First and second proof remain separate.
 - Ratio previews with fixed-base arithmetic, supported ranges, confirmation, stale-proposal rejection, and protection for ingredients already used. Initial ratio editing is available during preparation.
 - Atomic local session storage and recovery after termination; pauses leave timers running.
@@ -52,7 +53,7 @@ Apple, Google, email/password, and phone providers are enabled. Phone SMS is res
 
 ## Checks
 
-Verified: simulator build, signed build/install/launch on Colin’s iPhone 14, twelve core checks, eleven backend checks (including signed-in authorization, three concurrent isolated conversations, shared-budget reservations, and account-transfer authorization), a bounded live xAI tool/spoken-answer check through the deployed relay, and a live synthetic-account check of email sign-in plus one-time voice enrollment transfer. Synthetic accounts/records were removed afterward. The account lifecycle and full local cooking UI flows passed on iPhone 14 / iOS 18.4 after the account changes; microphone behavior and real Google/SMS sign-in are not covered by those tests. The latest manual ingredient flow and account configuration have been installed and launched on Colin’s iPhone.
+Verified: simulator build, signed build/install/launch on Colin’s iPhone 14, sixteen core checks, eleven backend checks (including signed-in authorization, three concurrent isolated conversations, shared-budget reservations, and account-transfer authorization), a bounded live xAI tool/spoken-answer check through the deployed relay, and a live synthetic-account check of email sign-in plus one-time voice enrollment transfer. Synthetic accounts/records were removed afterward. The account lifecycle and full local cooking UI flows passed on iPhone 14 / iOS 18.4 after the account changes; microphone behavior and real Google/SMS sign-in are not covered by those tests. The earlier manual ingredient flow and account configuration were installed and launched on Colin’s iPhone. The new grouped ingredient catalog/preference flow is a local update awaiting a new device/TestFlight build.
 
 Core checks (graph validity, readiness, timers/recovery, proofing retries, coaching deduplication, ratios, allergens, command negations, and equipment conflicts):
 
@@ -62,7 +63,7 @@ npm ci --prefix backend
 npm test --prefix backend
 ```
 
-The shared Xcode scheme includes **OuiChefUITests**, which walks through onboarding, ingredient readiness, a margarita timer, pause, and relaunch. Run Product → Test on an isolated simulator. The test deliberately preserves session data after relaunch and attaches screenshots.
+The shared Xcode scheme includes **OuiChefUITests**, which walks through onboarding, ingredient search/dislikes, approved pasta substitutions, manual ingredient readiness, a margarita timer, pause, and relaunch. Run Product → Test on an isolated simulator. The test deliberately preserves session data after relaunch and attaches screenshots.
 
 ## Current limits
 

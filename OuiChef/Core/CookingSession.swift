@@ -57,7 +57,7 @@ struct CookingSession: Codable, Identifiable {
 
     var checksComplete: Bool {
         Set(recipe.ingredients.map(\.id)).isSubset(of: confirmedIngredients)
-        && Set(recipe.tools).isSubset(of: confirmedTools) && labelsChecked
+        && labelsChecked
     }
     // Existing sessions that already started cooking keep their progress on upgrade.
     var ready: Bool { checksComplete && (preparationCompletedAt != nil || !started.isEmpty) }
@@ -101,13 +101,13 @@ struct CookingSession: Codable, Identifiable {
         record("servings_adjusted", at: date)
     }
     mutating func completePreparation(at date: Date) throws {
-        guard checksComplete else { throw CookingError.invalid("Check your ingredients, equipment, and labels before cooking.") }
+        guard checksComplete else { throw CookingError.invalid("Check your ingredients and product labels before cooking.") }
         preparationCompletedAt = date
         guidancePaused = false
         record("preparation_completed", at: date)
     }
     mutating func begin(_ id: String, at date: Date) throws {
-        guard ready else { throw CookingError.invalid("Let's check every ingredient, tool, and product label first.") }
+        guard ready else { throw CookingError.invalid("Let's check the ingredients and product labels first.") }
         guard !guidancePaused else { throw CookingError.invalid("Resume guidance before starting a task.") }
         guard !started.contains(id) else { return }
         guard let node = eligibleNodes.first(where: { $0.id == id }) else { throw CookingError.invalid("Finish this task's prerequisites first.") }
@@ -221,5 +221,22 @@ struct CookingSession: Codable, Identifiable {
         confirmedIngredients.remove(proposal.ingredientID)
         preparationCompletedAt = nil
         record("ratio_adjusted", at: date)
+    }
+
+    mutating func selectAlternative(_ foodID: String, for ingredientID: String, at date: Date) throws {
+        guard started.isEmpty, let index = recipe.ingredients.firstIndex(where: { $0.id == ingredientID }),
+              let option = recipe.ingredients[index].alternatives?.first(where: { $0.foodID == foodID }) else {
+            throw CookingError.invalid("Choose a supported alternative before cooking starts.")
+        }
+        guard recipe.ingredients[index].foodID != foodID else { return }
+        recipe.ingredients[index].foodID = option.foodID
+        recipe.ingredients[index].name = option.name
+        for index in recipe.nodes.indices {
+            if let instruction = option.instructions[recipe.nodes[index].id] { recipe.nodes[index].instruction = instruction }
+        }
+        confirmedIngredients.remove(ingredientID)
+        labelsChecked = false
+        preparationCompletedAt = nil
+        record("ingredient_replaced", at: date)
     }
 }

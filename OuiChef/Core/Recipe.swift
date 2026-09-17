@@ -25,6 +25,19 @@ struct Food: Codable, Identifiable {
     var allergens: [String]
     var constituents: [String]
     var compositionKnown: Bool
+    var categoryID: String?
+    var aliases: [String]?
+    var dietaryTags: [String]?
+    var traits: [String]?
+    var spriteAsset: String?
+}
+
+struct IngredientAlternative: Codable, Identifiable {
+    var id: String { foodID }
+    var foodID: String
+    var name: String
+    var note: String
+    var instructions: [String: String]
 }
 
 struct Ingredient: Codable, Identifiable {
@@ -34,6 +47,7 @@ struct Ingredient: Codable, Identifiable {
     var amount: Double
     var unit: String
     var scales: Bool
+    var alternatives: [IngredientAlternative]?
 
     var quantity: String { "\(amount.formatted(.number.precision(.fractionLength(0...1)))) \(unit)" }
 }
@@ -70,6 +84,21 @@ struct RatioOption: Codable, Identifiable {
     var maximum: Double
     var step: Double
     var explanation: String
+    var preference: String?
+
+    func preferredValue(_ preferences: ChefPreferences, defaultValue: Double) -> Double? {
+        let value: Double
+        switch preference {
+        case "salt": value = preferences.salt
+        case "sweetness": value = preferences.sweetness
+        case "spice": value = preferences.spice
+        default: return nil
+        }
+        guard value.isFinite, (0...1).contains(value), abs(value - 0.5) > 0.01 else { return nil }
+        let ratio = value < 0.5 ? minimum + (defaultValue - minimum) * value * 2
+            : defaultValue + (maximum - defaultValue) * (value - 0.5) * 2
+        return min(maximum, max(minimum, (ratio / step).rounded() * step))
+    }
 }
 
 struct Recipe: Codable, Identifiable {
@@ -97,6 +126,7 @@ struct RecipeCatalog: Codable {
     var schemaVersion: Int
     var foods: [Food]
     var recipes: [Recipe]
+    var categories: [FoodCategory] = []
 
     static func bundled() throws -> Self {
         #if SWIFT_PACKAGE
@@ -107,7 +137,14 @@ struct RecipeCatalog: Codable {
         guard let url = bundle.url(forResource: "recipes", withExtension: "json") else {
             throw CookingError.invalid("The recipe library is missing.")
         }
-        let catalog = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+        struct Recipes: Decodable { var schemaVersion: Int; var recipes: [Recipe] }
+        let recipes = try JSONDecoder().decode(Recipes.self, from: Data(contentsOf: url))
+        guard let ingredientURL = bundle.url(forResource: "ingredients", withExtension: "json") else {
+            throw CookingError.invalid("The ingredient library is missing.")
+        }
+        let library = try JSONDecoder().decode(IngredientLibrary.self, from: Data(contentsOf: ingredientURL))
+        try library.validate()
+        let catalog = Self(schemaVersion: recipes.schemaVersion, foods: library.foods, recipes: recipes.recipes, categories: library.categories)
         try catalog.validate()
         return catalog
     }
@@ -136,6 +173,17 @@ struct RecipeCatalog: Codable {
             try require(recipe.baseServings > 0 && recipe.maximumServings >= recipe.baseServings, "Invalid yield.")
             for ingredient in recipe.ingredients {
                 try require(foodIDs.contains(ingredient.foodID) && ingredient.amount.isFinite && ingredient.amount > 0, "Invalid ingredient.")
+                let alternatives = ingredient.alternatives ?? []
+                try require(Set(alternatives.map(\.foodID)).count == alternatives.count, "Duplicate ingredient alternatives.")
+                if !alternatives.isEmpty {
+                    let overriddenNodes = Set(alternatives.flatMap { $0.instructions.keys })
+                    try require(alternatives.contains { $0.foodID == ingredient.foodID }, "Alternatives need a way to restore the original ingredient.")
+                    try require(alternatives.allSatisfy { Set($0.instructions.keys) == overriddenNodes }, "Alternatives must define every changed instruction.")
+                }
+                for option in alternatives {
+                    try require(!option.name.isEmpty && !option.note.isEmpty, "Alternative instructions need a name and explanation.")
+                    try require(foodIDs.contains(option.foodID) && Set(option.instructions.keys).isSubset(of: ids), "Invalid ingredient alternative.")
+                }
             }
             let outputs = recipe.nodes.flatMap(\.outputs)
             try require(Set(outputs).count == outputs.count && Set(outputs).isDisjoint(with: ingredients), "Duplicate output states.")
@@ -162,10 +210,11 @@ struct RecipeCatalog: Codable {
                 }
             }
             for ratio in recipe.ratios {
+                try require(ratio.preference == nil || ["salt", "sweetness", "spice"].contains(ratio.preference!), "Unknown taste preference.")
                 try require(ingredients.contains(ratio.ingredientID) && ingredients.contains(ratio.baseIngredientID), "Unknown ratio ingredient.")
                 let target = recipe.ingredients.first { $0.id == ratio.ingredientID }!
                 let base = recipe.ingredients.first { $0.id == ratio.baseIngredientID }!
-                try require(target.unit == base.unit && ratio.minimum.isFinite && ratio.maximum.isFinite && ratio.minimum > 0 && ratio.maximum >= ratio.minimum && ratio.step > 0, "Invalid ratio bounds or units.")
+                try require(target.unit == base.unit && ratio.minimum.isFinite && ratio.maximum.isFinite && ratio.minimum > 0 && ratio.maximum >= ratio.minimum && ratio.step.isFinite && ratio.step > 0, "Invalid ratio bounds or units.")
             }
         }
     }

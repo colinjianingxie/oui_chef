@@ -8,6 +8,8 @@ import { cookingTool, sessionUpdate } from './xai.mjs';
 test('relay authenticates, completes multiple tools once, meters and closes upstream', { timeout: 15000 }, async t => {
   assert.ok(!cookingTool.parameters.properties.operation.enum.includes('confirm_ingredient'));
   assert.match(sessionUpdate({}).session.instructions, /verification happens manually/);
+  assert.match(sessionUpdate({}).session.instructions, /Kitchen equipment is a recommendation, not a verification gate/);
+  assert.doesNotMatch(cookingTool.description, /equipment, and label checks/);
   let budgetReleased;
   const released = new Promise(resolve => { budgetReleased = resolve; });
   const savedKey = process.env.XAI_API_KEY;

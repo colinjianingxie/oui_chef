@@ -70,3 +70,21 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.green.opacity(0.09)))
     }
 }
+
+struct IngredientArtwork: View {
+    let food: Food?
+    var symbol = "leaf"
+    var size: CGFloat = 44
+
+    var body: some View {
+        Group {
+            if let asset = food?.spriteAsset, let image = UIImage(named: asset) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: symbol).font(.system(size: size * 0.44, weight: .light))
+                    .foregroundStyle(Theme.green).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.sage.opacity(0.6), in: Circle())
+            }
+        }.frame(width: size, height: size).accessibilityHidden(true)
+    }
+}

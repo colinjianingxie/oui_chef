@@ -215,18 +215,21 @@ struct RecipeDetailView: View {
                     Text(recipe.subtitle).foregroundStyle(.secondary)
                     HStack(spacing: 20) { Label(recipe.minutes, systemImage: "clock"); Label(recipe.style.name, systemImage: "leaf") }.font(.caption)
                     Stepper("\(recipe.yieldLabel.capitalized): \(servings)", value: $servings, in: 1...recipe.maximumServings)
-                    Text("What you’ll need").font(Theme.serif(25))
-                    ForEach(recipe.ingredients) { ingredient in
-                        HStack {
-                            Text(ingredient.name)
-                            Spacer()
-                            Text((ingredient.amount * (ingredient.scales ? Double(servings) / Double(recipe.baseServings) : 1)).formatted(.number.precision(.fractionLength(0...1))) + " " + ingredient.unit)
-                                .foregroundStyle(.secondary)
-                        }.font(.subheadline)
-                    }
-                    Divider()
-                    Text("In your kitchen").font(Theme.serif(25))
-                    Text(recipe.tools.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary)
+                    Text("Before we cook").font(Theme.serif(28))
+                    Text("A quick check for a smoother cooking experience.").font(.subheadline).foregroundStyle(.secondary)
+                    prepCard("Preferences", detail: "Applied to the ingredients you use", symbol: "heart")
+                    prepCard("Ingredients", detail: "Grouped for an easy check", symbol: "carrot")
+                    prepCard("Kitchen items", detail: "Helpful recommendations · no verification", symbol: "fork.knife")
+                    DisclosureGroup("What you’ll need") {
+                        ForEach(recipe.ingredients) { ingredient in
+                            HStack {
+                                Text(ingredient.name)
+                                Spacer()
+                                Text((ingredient.amount * (ingredient.scales ? Double(servings) / Double(recipe.baseServings) : 1)).formatted(.number.precision(.fractionLength(0...1))) + " " + ingredient.unit)
+                                    .foregroundStyle(.secondary)
+                            }.font(.subheadline).padding(.vertical, 5)
+                        }
+                    }.kitchenCard()
                     if let restriction = store.restriction(for: recipe) {
                         Label(restriction, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(Theme.orange).kitchenCard()
                     }
@@ -240,10 +243,20 @@ struct RecipeDetailView: View {
                 Button {
                     store.choose(recipe, servings: servings)
                     if store.session?.recipe.id == recipe.id { dismiss() }
-                } label: { Label("Check all ingredients", systemImage: "checklist") }
-                    .buttonStyle(FilledButton()).disabled(store.restriction(for: recipe) != nil)
+                } label: { Label("Start prep flow", systemImage: "arrow.right") }
+                    .buttonStyle(FilledButton())
                     .padding(20).background(Theme.cream)
             }
         }.onAppear { servings = recipe.baseServings }
+    }
+
+    private func prepCard(_ title: String, detail: String, symbol: String) -> some View {
+        HStack(spacing: 16) {
+            IngredientArtwork(food: nil, symbol: symbol)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(Theme.serif(24))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }.kitchenCard()
     }
 }

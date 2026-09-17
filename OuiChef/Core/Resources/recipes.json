@@ -1,108 +1,9 @@
 {
   "schemaVersion": 1,
-  "foods": [
-    {
-      "id": "flour",
-      "name": "Wheat flour",
-      "allergens": [
-        "wheat",
-        "gluten"
-      ],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "water",
-      "name": "Water",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "yeast",
-      "name": "Instant yeast",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "salt",
-      "name": "Salt",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "sugar",
-      "name": "Sugar",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "tomato",
-      "name": "Canned tomatoes",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "oil",
-      "name": "Olive oil",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "garlic",
-      "name": "Garlic",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "pasta",
-      "name": "Dried wheat spaghetti",
-      "allergens": [
-        "wheat",
-        "gluten"
-      ],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "tequila",
-      "name": "Tequila",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": false
-    },
-    {
-      "id": "liqueur",
-      "name": "Orange liqueur",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": false
-    },
-    {
-      "id": "lime",
-      "name": "Lime juice",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    },
-    {
-      "id": "ice",
-      "name": "Ice",
-      "allergens": [],
-      "constituents": [],
-      "compositionKnown": true
-    }
-  ],
   "recipes": [
     {
       "id": "spaghetti",
-      "version": 1,
+      "version": 2,
       "title": "Sunday Spaghetti",
       "subtitle": "A little garlic. A slow simmer. A very good dinner.",
       "style": "pasta",
@@ -124,7 +25,25 @@
           "name": "Dried spaghetti",
           "amount": 200,
           "unit": "g",
-          "scales": true
+          "scales": true,
+          "alternatives": [
+            {
+              "foodID": "pasta",
+              "name": "Dried spaghetti",
+              "note": "Original wheat spaghetti.",
+              "instructions": {
+                "cook_pasta": "Add spaghetti to the boiling water and stir. The 8-minute reminder is a starting point; use the package time and check the texture. Start when the pasta is in the water."
+              }
+            },
+            {
+              "foodID": "rice_spaghetti",
+              "name": "Rice spaghetti",
+              "note": "Use the same dry weight. Check the package ingredients and cross-contact information; follow its cooking time.",
+              "instructions": {
+                "cook_pasta": "Add the rice spaghetti to boiling water and stir gently. Follow its package cooking time and taste for tenderness; the reminder is only a check-in. Start when the pasta is in the water."
+              }
+            }
+          ]
         },
         {
           "id": "tomatoes",
@@ -191,6 +110,17 @@
           "maximum": 2.5,
           "step": 0.1,
           "explanation": "Keep the pasta amount fixed; adjust tomatoes before starting the sauce."
+        },
+        {
+          "id": "salt_balance",
+          "title": "Sauce seasoning",
+          "ingredientID": "sauce_salt",
+          "baseIngredientID": "tomatoes",
+          "minimum": 0.0025,
+          "maximum": 0.0075,
+          "step": 0.0005,
+          "explanation": "Adjust only the sauce salt before cooking; pasta water seasoning stays separate.",
+          "preference": "salt"
         }
       ],
       "nodes": [
@@ -383,7 +313,7 @@
         "Vegetarian",
         "Vegan"
       ],
-      "minutes": "3\u20134 hr",
+      "minutes": "3–4 hr",
       "activeMinutes": 25,
       "baseServings": 1,
       "maximumServings": 1,
@@ -576,7 +506,7 @@
             {
               "id": "cue_0",
               "afterSeconds": 1800,
-              "text": "We are on the second rise now. How is your shaped loaf looking\u2014has it become noticeably puffy?"
+              "text": "We are on the second rise now. How is your shaped loaf looking—has it become noticeably puffy?"
             }
           ]
         },
@@ -584,8 +514,8 @@
           "id": "preheat",
           "kind": "action",
           "title": "Preheat the oven",
-          "instruction": "Set the oven to 220\u00b0C / 425\u00b0F. Keep the rising dough outside the oven.",
-          "criterion": "Has the oven reached 220\u00b0C / 425\u00b0F?",
+          "instruction": "Set the oven to 220°C / 425°F. Keep the rising dough outside the oven.",
+          "criterion": "Has the oven reached 220°C / 425°F?",
           "dependsOn": [
             "shape"
           ],
@@ -658,7 +588,7 @@
     },
     {
       "id": "margarita",
-      "version": 1,
+      "version": 2,
       "title": "The Classic Margarita",
       "subtitle": "Bright lime, good tequila, and a moment to unwind.",
       "style": "tequila",
@@ -721,7 +651,8 @@
           "minimum": 0.2,
           "maximum": 0.6,
           "step": 0.05,
-          "explanation": "Keep tequila fixed; adjust liqueur before mixing. This changes flavor balance and total volume."
+          "explanation": "Keep tequila fixed; adjust liqueur before mixing. This changes flavor balance and total volume.",
+          "preference": "sweetness"
         },
         {
           "id": "citrus",

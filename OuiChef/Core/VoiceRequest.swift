@@ -16,7 +16,7 @@ struct VoiceRequest: Codable {
     func validate(session: CookingSession?) throws {
         if operation == .state || operation == .mute { return }
         guard ![.confirm_ingredient, .confirm_tool, .confirm_labels].contains(operation) else {
-            throw CookingError.invalid("Ingredient, equipment, and label checks are manual. Ask the user to finish the checklist on screen before cooking.")
+            throw CookingError.invalid("Ingredient and product label checks are manual. Ask the user to finish the checklist on screen before cooking.")
         }
         guard sessionID == (session?.id.uuidString ?? "none"), revision == (session?.revision ?? 0) else {
             throw CookingError.invalid("Cooking state changed. Read the current state and ask again if needed.")

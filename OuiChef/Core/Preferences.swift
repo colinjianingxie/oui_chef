@@ -13,6 +13,7 @@ struct ChefPreferences: Codable, Equatable {
     var avoidAlcohol = false
     var analyticsEnabled = false
     var keepScreenAwake = true
+    var dislikedFoodIDs: Set<String>?
 }
 
 enum VoiceCommand: Equatable {

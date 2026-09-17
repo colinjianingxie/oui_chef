@@ -24,7 +24,7 @@ const styles = Object.fromEntries(['pasta', 'bread', 'tequila'].map(style =>
 
 export const cookingTool = {
   type: 'function', name: 'cooking',
-  description: 'Read or change Oui Chef cooking state. Get state first. All mutations require the current session ID and revision, plus explicit user confirmation. Never infer completion from time or silence. Propose ratios first, read exact changes, wait for a new user turn, then confirm the proposal ID. Accept an explicit user report that an active step is done without a prior readiness question. Clarify ambiguous reports with multiple active steps. Ingredient, equipment, and label checks are manual in the app.',
+  description: 'Read or change Oui Chef cooking state. Get state first. All mutations require the current session ID and revision, plus explicit user confirmation. Never infer completion from time or silence. Propose ratios first, read exact changes, wait for a new user turn, then confirm the proposal ID. Accept an explicit user report that an active step is done without a prior readiness question. Clarify ambiguous reports with multiple active steps. Ingredient and product label checks are manual in the app. Kitchen equipment is informational.',
   parameters: { type: 'object', additionalProperties: false,
     properties: {
       operation: { type: 'string', enum: ['state', 'select_recipe', 'start_node', 'ask_readiness', 'complete_node', 'recheck', 'pause', 'resume', 'propose_ratio', 'confirm_ratio', 'set_guidance', 'mute'] },

@@ -115,6 +115,11 @@ final class ChefStore {
 
     func savePreferences(_ preferences: ChefPreferences) {
         commit { next in
+            if next.preferences.allergies != preferences.allergies || next.preferences.dietary != preferences.dietary || next.preferences.avoidAlcohol != preferences.avoidAlcohol {
+                next.session?.labelsChecked = false
+                next.session?.preparationCompletedAt = nil
+            }
+            if next.preferences != preferences { next.session?.record("preferences_changed", at: Date()) }
             next.preferences = preferences
             if !preferences.analyticsEnabled { next.usage = [] }
         }
@@ -125,29 +130,18 @@ final class ChefStore {
         }
     }
     func restriction(for recipe: Recipe) -> String? {
-        if preferences.avoidAlcohol && recipe.tags.contains("Alcohol") { return "You prefer to avoid alcohol." }
-        if preferences.allergyAnswer == "I have allergies" && preferences.allergies.isEmpty { return "Select your allergies in preferences before cooking." }
-        for diet in preferences.dietary.intersection(["Vegetarian", "Vegan"]) where !recipe.tags.contains(diet) {
-            return "This recipe is not confirmed \(diet.lowercased())."
-        }
-        if preferences.dietary.contains("Gluten-free"), let catalog, !catalog.allergyConcerns(for: recipe, avoiding: ["gluten"]).isEmpty {
-            return "This recipe is not confirmed gluten-free."
-        }
-        if preferences.dietary.contains("Dairy-free"), let catalog, !catalog.allergyConcerns(for: recipe, avoiding: ["milk"]).isEmpty {
-            return "This recipe is not confirmed dairy-free."
-        }
-        let issues = catalog?.allergyConcerns(for: recipe, avoiding: preferences.allergies) ?? []
-        return issues.isEmpty ? nil : issues.joined(separator: ". ")
+        guard let catalog else { return "The ingredient library is unavailable." }
+        return catalog.restriction(for: recipe, preferences: preferences)
     }
+
     func choose(_ recipe: Recipe, servings: Int) {
         guard session == nil else { error = "Finish or end your current recipe before starting another."; return }
-        if let restriction = restriction(for: recipe) { error = restriction; return }
         if commit({ next in
             next.session = try CookingSession(recipe: recipe, servings: servings)
             if next.preferences.analyticsEnabled { next.usage.append(UsageRecord(name: "recipe_selected", recipeID: recipe.id)) }
         }) {
             showingVoice = false
-            chefMessage = "Check your ingredients and tools on screen, then we’ll cook \(recipe.title.lowercased()) together."
+            chefMessage = "Review your preferences and ingredients on screen, then we’ll cook \(recipe.title.lowercased()) together."
         }
     }
     func endSession() {
@@ -224,7 +218,12 @@ final class ChefStore {
         return ["now": ISO8601DateFormatter().string(from: Date()), "session": snapshot.map(object) ?? NSNull(),
                 "sessionID": session?.id.uuidString ?? "none", "revision": session?.revision ?? 0,
                 "catalog": object(recipes), "preferences": object(preferences),
-                "restrictions": Dictionary(uniqueKeysWithValues: recipes.map { ($0.id, restriction(for: $0) ?? "") }),
+                "restrictions": Dictionary(uniqueKeysWithValues: recipes.map { ($0.id, restriction(for: snapshot?.recipe.id == $0.id ? snapshot!.recipe : $0) ?? "") }),
+                "ingredientReviews": (snapshot?.recipe.ingredients ?? []).map { ingredient -> [String: Any] in
+                    let review = catalog?.review(foodID: ingredient.foodID, preferences: preferences)
+                    return ["ingredientID": ingredient.id, "foodID": ingredient.foodID,
+                            "blocking": review?.blocking ?? [], "notes": review?.notes ?? []]
+                },
                 "pendingRatioProposalID": voiceProposal?.id.uuidString ?? "none",
                 "manualPreparationRequired": session.map { !$0.ready } ?? false]
     }

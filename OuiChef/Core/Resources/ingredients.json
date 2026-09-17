@@ -1,0 +1,1236 @@
+{
+  "schemaVersion": 1,
+  "categories": [
+    {
+      "id": "produce",
+      "name": "Produce",
+      "symbol": "leaf"
+    },
+    {
+      "id": "vegetables",
+      "name": "Vegetables",
+      "symbol": "leaf",
+      "parentID": "produce"
+    },
+    {
+      "id": "alliums",
+      "name": "Alliums",
+      "symbol": "leaf",
+      "parentID": "vegetables"
+    },
+    {
+      "id": "roots",
+      "name": "Roots & tubers",
+      "symbol": "leaf",
+      "parentID": "vegetables"
+    },
+    {
+      "id": "leafy",
+      "name": "Leafy greens",
+      "symbol": "leaf",
+      "parentID": "vegetables"
+    },
+    {
+      "id": "fruiting",
+      "name": "Fruiting vegetables",
+      "symbol": "leaf",
+      "parentID": "vegetables"
+    },
+    {
+      "id": "cruciferous",
+      "name": "Cruciferous vegetables",
+      "symbol": "leaf",
+      "parentID": "vegetables"
+    },
+    {
+      "id": "fruit",
+      "name": "Fruit",
+      "symbol": "leaf",
+      "parentID": "produce"
+    },
+    {
+      "id": "citrus",
+      "name": "Citrus",
+      "symbol": "leaf",
+      "parentID": "fruit"
+    },
+    {
+      "id": "orchard",
+      "name": "Orchard fruit",
+      "symbol": "leaf",
+      "parentID": "fruit"
+    },
+    {
+      "id": "berries",
+      "name": "Berries",
+      "symbol": "leaf",
+      "parentID": "fruit"
+    },
+    {
+      "id": "herbs",
+      "name": "Fresh herbs",
+      "symbol": "leaf",
+      "parentID": "produce"
+    },
+    {
+      "id": "fungi",
+      "name": "Mushrooms",
+      "symbol": "leaf",
+      "parentID": "produce"
+    },
+    {
+      "id": "pantry",
+      "name": "Pantry",
+      "symbol": "cabinet"
+    },
+    {
+      "id": "grains",
+      "name": "Grains & pasta",
+      "symbol": "takeoutbag.and.cup.and.straw",
+      "parentID": "pantry"
+    },
+    {
+      "id": "baking",
+      "name": "Baking",
+      "symbol": "birthday.cake",
+      "parentID": "pantry"
+    },
+    {
+      "id": "seasoning",
+      "name": "Salt & spices",
+      "symbol": "sparkles",
+      "parentID": "pantry"
+    },
+    {
+      "id": "oils",
+      "name": "Oils & vinegars",
+      "symbol": "drop",
+      "parentID": "pantry"
+    },
+    {
+      "id": "legumes",
+      "name": "Beans & lentils",
+      "symbol": "leaf",
+      "parentID": "pantry"
+    },
+    {
+      "id": "nuts",
+      "name": "Nuts & seeds",
+      "symbol": "leaf",
+      "parentID": "pantry"
+    },
+    {
+      "id": "sauces",
+      "name": "Sauces & preserves",
+      "symbol": "basket",
+      "parentID": "pantry"
+    },
+    {
+      "id": "dairy",
+      "name": "Dairy & eggs",
+      "symbol": "mug"
+    },
+    {
+      "id": "milk_products",
+      "name": "Milk & cream",
+      "symbol": "mug",
+      "parentID": "dairy"
+    },
+    {
+      "id": "cheese",
+      "name": "Cheese",
+      "symbol": "circle.grid.cross",
+      "parentID": "dairy"
+    },
+    {
+      "id": "eggs",
+      "name": "Eggs",
+      "symbol": "oval",
+      "parentID": "dairy"
+    },
+    {
+      "id": "protein",
+      "name": "Meat & seafood",
+      "symbol": "fish"
+    },
+    {
+      "id": "meat",
+      "name": "Meat & poultry",
+      "symbol": "fork.knife",
+      "parentID": "protein"
+    },
+    {
+      "id": "seafood",
+      "name": "Fish & shellfish",
+      "symbol": "fish",
+      "parentID": "protein"
+    },
+    {
+      "id": "drinks",
+      "name": "Drinks & ice",
+      "symbol": "wineglass"
+    },
+    {
+      "id": "spirits",
+      "name": "Spirits & liqueurs",
+      "symbol": "wineglass",
+      "parentID": "drinks"
+    },
+    {
+      "id": "water_ice",
+      "name": "Water & ice",
+      "symbol": "drop",
+      "parentID": "drinks"
+    }
+  ],
+  "foods": [
+    {
+      "id": "flour",
+      "name": "Wheat flour",
+      "categoryID": "baking",
+      "allergens": [
+        "wheat",
+        "gluten"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_flour"
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "categoryID": "water_ice",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_water"
+    },
+    {
+      "id": "yeast",
+      "name": "Instant yeast",
+      "categoryID": "baking",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_yeast"
+    },
+    {
+      "id": "salt",
+      "name": "Salt",
+      "categoryID": "seasoning",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_salt"
+    },
+    {
+      "id": "sugar",
+      "name": "Sugar",
+      "categoryID": "baking",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_sugar"
+    },
+    {
+      "id": "tomato",
+      "name": "Canned tomatoes",
+      "categoryID": "sauces",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "canned tomato",
+        "crushed tomatoes"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_tomato"
+    },
+    {
+      "id": "oil",
+      "name": "Olive oil",
+      "categoryID": "oils",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "olive oil"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_oil"
+    },
+    {
+      "id": "garlic",
+      "name": "Garlic",
+      "categoryID": "alliums",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "garlic cloves"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_garlic"
+    },
+    {
+      "id": "pasta",
+      "name": "Dried wheat spaghetti",
+      "categoryID": "grains",
+      "allergens": [
+        "wheat",
+        "gluten"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "spaghetti"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_pasta"
+    },
+    {
+      "id": "tequila",
+      "name": "Tequila",
+      "categoryID": "spirits",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": false,
+      "constituents": [],
+      "aliases": [],
+      "traits": [
+        "alcohol"
+      ],
+      "spriteAsset": "ingredient_tequila"
+    },
+    {
+      "id": "liqueur",
+      "name": "Orange liqueur",
+      "categoryID": "spirits",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": false,
+      "constituents": [],
+      "aliases": [],
+      "traits": [
+        "alcohol"
+      ],
+      "spriteAsset": "ingredient_liqueur"
+    },
+    {
+      "id": "lime",
+      "name": "Lime juice",
+      "categoryID": "citrus",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "lime",
+        "fresh lime juice"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_lime"
+    },
+    {
+      "id": "ice",
+      "name": "Ice",
+      "categoryID": "water_ice",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_ice"
+    },
+    {
+      "id": "onion",
+      "name": "Onion",
+      "categoryID": "alliums",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_onion"
+    },
+    {
+      "id": "shallot",
+      "name": "Shallot",
+      "categoryID": "alliums",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_shallot"
+    },
+    {
+      "id": "scallion",
+      "name": "Scallion",
+      "categoryID": "alliums",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "green onion",
+        "spring onion"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_scallion"
+    },
+    {
+      "id": "leek",
+      "name": "Leek",
+      "categoryID": "alliums",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_leek"
+    },
+    {
+      "id": "carrot",
+      "name": "Carrot",
+      "categoryID": "roots",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_carrot"
+    },
+    {
+      "id": "potato",
+      "name": "Potato",
+      "categoryID": "roots",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_potato"
+    },
+    {
+      "id": "sweet_potato",
+      "name": "Sweet potato",
+      "categoryID": "roots",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_sweet_potato"
+    },
+    {
+      "id": "beet",
+      "name": "Beet",
+      "categoryID": "roots",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "beetroot"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_beet"
+    },
+    {
+      "id": "spinach",
+      "name": "Spinach",
+      "categoryID": "leafy",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_spinach"
+    },
+    {
+      "id": "kale",
+      "name": "Kale",
+      "categoryID": "leafy",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_kale"
+    },
+    {
+      "id": "lettuce",
+      "name": "Lettuce",
+      "categoryID": "leafy",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_lettuce"
+    },
+    {
+      "id": "fresh_tomato",
+      "name": "Fresh tomato",
+      "categoryID": "fruiting",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_fresh_tomato"
+    },
+    {
+      "id": "pepper",
+      "name": "Bell pepper",
+      "categoryID": "fruiting",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "capsicum"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_pepper"
+    },
+    {
+      "id": "zucchini",
+      "name": "Zucchini",
+      "categoryID": "fruiting",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "courgette"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_zucchini"
+    },
+    {
+      "id": "eggplant",
+      "name": "Eggplant",
+      "categoryID": "fruiting",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "aubergine"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_eggplant"
+    },
+    {
+      "id": "cucumber",
+      "name": "Cucumber",
+      "categoryID": "fruiting",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_cucumber"
+    },
+    {
+      "id": "broccoli",
+      "name": "Broccoli",
+      "categoryID": "cruciferous",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_broccoli"
+    },
+    {
+      "id": "cauliflower",
+      "name": "Cauliflower",
+      "categoryID": "cruciferous",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_cauliflower"
+    },
+    {
+      "id": "cabbage",
+      "name": "Cabbage",
+      "categoryID": "cruciferous",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_cabbage"
+    },
+    {
+      "id": "lemon",
+      "name": "Lemon",
+      "categoryID": "citrus",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_lemon"
+    },
+    {
+      "id": "orange",
+      "name": "Orange",
+      "categoryID": "citrus",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_orange"
+    },
+    {
+      "id": "apple",
+      "name": "Apple",
+      "categoryID": "orchard",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_apple"
+    },
+    {
+      "id": "pear",
+      "name": "Pear",
+      "categoryID": "orchard",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_pear"
+    },
+    {
+      "id": "strawberry",
+      "name": "Strawberry",
+      "categoryID": "berries",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_strawberry"
+    },
+    {
+      "id": "blueberry",
+      "name": "Blueberry",
+      "categoryID": "berries",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_blueberry"
+    },
+    {
+      "id": "parsley",
+      "name": "Parsley",
+      "categoryID": "herbs",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_parsley"
+    },
+    {
+      "id": "cilantro",
+      "name": "Cilantro",
+      "categoryID": "herbs",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "coriander leaf",
+        "fresh coriander"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_cilantro"
+    },
+    {
+      "id": "basil",
+      "name": "Basil",
+      "categoryID": "herbs",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_basil"
+    },
+    {
+      "id": "thyme",
+      "name": "Thyme",
+      "categoryID": "herbs",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_thyme"
+    },
+    {
+      "id": "mushroom",
+      "name": "Button mushroom",
+      "categoryID": "fungi",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "white mushroom"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_mushroom"
+    },
+    {
+      "id": "shiitake",
+      "name": "Shiitake mushroom",
+      "categoryID": "fungi",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_shiitake"
+    },
+    {
+      "id": "rice",
+      "name": "Rice",
+      "categoryID": "grains",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_rice"
+    },
+    {
+      "id": "corn",
+      "name": "Corn",
+      "categoryID": "grains",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "maize"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_corn"
+    },
+    {
+      "id": "chickpea",
+      "name": "Chickpea",
+      "categoryID": "legumes",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "garbanzo bean"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_chickpea"
+    },
+    {
+      "id": "lentil",
+      "name": "Lentil",
+      "categoryID": "legumes",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_lentil"
+    },
+    {
+      "id": "black_pepper",
+      "name": "Black pepper",
+      "categoryID": "seasoning",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_black_pepper"
+    },
+    {
+      "id": "chili",
+      "name": "Chili pepper",
+      "categoryID": "seasoning",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [
+        "chilli"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_chili"
+    },
+    {
+      "id": "vinegar",
+      "name": "Apple cider vinegar",
+      "categoryID": "oils",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_vinegar"
+    },
+    {
+      "id": "rice_spaghetti",
+      "name": "Rice spaghetti",
+      "categoryID": "grains",
+      "allergens": [],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [
+        "rice",
+        "water"
+      ],
+      "aliases": [
+        "rice pasta"
+      ],
+      "traits": [],
+      "spriteAsset": "ingredient_rice_spaghetti"
+    },
+    {
+      "id": "milk",
+      "name": "Cow’s milk",
+      "categoryID": "milk_products",
+      "allergens": [
+        "milk"
+      ],
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_milk"
+    },
+    {
+      "id": "cream",
+      "name": "Heavy cream",
+      "categoryID": "milk_products",
+      "allergens": [
+        "milk"
+      ],
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_cream"
+    },
+    {
+      "id": "butter",
+      "name": "Butter",
+      "categoryID": "milk_products",
+      "allergens": [
+        "milk"
+      ],
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_butter"
+    },
+    {
+      "id": "cheddar",
+      "name": "Cheddar cheese",
+      "categoryID": "cheese",
+      "allergens": [
+        "milk"
+      ],
+      "dietaryTags": [],
+      "compositionKnown": false,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_cheddar"
+    },
+    {
+      "id": "egg",
+      "name": "Chicken egg",
+      "categoryID": "eggs",
+      "allergens": [
+        "egg"
+      ],
+      "dietaryTags": [
+        "Vegetarian"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_egg"
+    },
+    {
+      "id": "chicken",
+      "name": "Chicken",
+      "categoryID": "meat",
+      "allergens": [],
+      "dietaryTags": [],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_chicken"
+    },
+    {
+      "id": "beef",
+      "name": "Beef",
+      "categoryID": "meat",
+      "allergens": [],
+      "dietaryTags": [],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_beef"
+    },
+    {
+      "id": "salmon",
+      "name": "Salmon",
+      "categoryID": "seafood",
+      "allergens": [
+        "fish"
+      ],
+      "dietaryTags": [],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_salmon"
+    },
+    {
+      "id": "shrimp",
+      "name": "Shrimp",
+      "categoryID": "seafood",
+      "allergens": [
+        "shellfish"
+      ],
+      "dietaryTags": [],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_shrimp"
+    },
+    {
+      "id": "peanut",
+      "name": "Peanut",
+      "categoryID": "nuts",
+      "allergens": [
+        "peanut"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_peanut"
+    },
+    {
+      "id": "almond",
+      "name": "Almond",
+      "categoryID": "nuts",
+      "allergens": [
+        "tree nuts"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_almond"
+    },
+    {
+      "id": "sesame",
+      "name": "Sesame seed",
+      "categoryID": "nuts",
+      "allergens": [
+        "sesame"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_sesame"
+    },
+    {
+      "id": "soybean",
+      "name": "Soybean",
+      "categoryID": "legumes",
+      "allergens": [
+        "soy"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": true,
+      "constituents": [],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_soybean"
+    },
+    {
+      "id": "soy_sauce",
+      "name": "Soy sauce",
+      "categoryID": "sauces",
+      "allergens": [
+        "soy",
+        "wheat",
+        "gluten"
+      ],
+      "dietaryTags": [
+        "Vegetarian",
+        "Vegan"
+      ],
+      "compositionKnown": false,
+      "constituents": [
+        "soybean"
+      ],
+      "aliases": [],
+      "traits": [],
+      "spriteAsset": "ingredient_soy_sauce"
+    }
+  ]
+}

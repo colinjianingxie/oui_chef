@@ -4,12 +4,13 @@ struct OnboardingView: View {
     let store: ChefStore
     var editing = false
     @State private var showAccount = false
+    @State private var showIngredients = false
     @State private var step = 0
     @State private var preferences = ChefPreferences()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private let titles = ["A sous chef\nthat listens.", "A kitchen\nthat fits you.", "A little care.\nBefore we cook.", "Your taste.\nYour pace.", "Your tools.\nYour kitchen.", "Make yourself\nat home."]
+    private let titles = ["A sous chef\nthat listens.", "A kitchen\nthat fits you.", "A little care.\nBefore we cook.", "Your taste.\nYour pace.", "Your ingredients.\nYour choice.", "Make yourself\nat home."]
     private var columns: [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 10), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2) }
 
     var body: some View {
@@ -27,7 +28,7 @@ struct OnboardingView: View {
                         if step == 1 { dietary }
                         if step == 2 { allergies }
                         if step == 3 { taste }
-                        if step == 4 { equipment }
+                        if step == 4 { dislikes }
                         if step == 5 { guidance }
                     }.padding(.horizontal, 24).padding(.vertical, 16)
                 }.scrollBounceBehavior(.basedOnSize).id(step)
@@ -47,6 +48,11 @@ struct OnboardingView: View {
         }.onAppear { preferences = store.preferences }
             .onChange(of: store.preferences) { _, value in preferences = value }
             .sheet(isPresented: $showAccount) { AccountView() }
+            .sheet(isPresented: $showIngredients) {
+                if let catalog = store.catalog {
+                    IngredientPickerView(catalog: catalog, selection: Binding(get: { preferences.dislikedFoodIDs ?? [] }, set: { preferences.dislikedFoodIDs = $0 }))
+                }
+            }
     }
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -98,14 +104,17 @@ struct OnboardingView: View {
             tasteSlider("Sweetness", low: "Less", high: "More", value: $preferences.sweetness)
         }
     }
-    private var equipment: some View {
+    private var dislikes: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Select the equipment you have. We'll still check the tools before each recipe.").font(.subheadline).foregroundStyle(.secondary)
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(["Stovetop", "Oven", "Mixing bowl", "Baking tray", "Large pot", "Saucepan", "Cocktail shaker"], id: \.self) { tool in
-                    selection(tool, selected: preferences.equipment.contains(tool)) { toggle(tool, in: &preferences.equipment) }
-                }
-            }
+            Text("Anything you'd rather leave out? Choose from our ingredient library.").font(.subheadline).foregroundStyle(.secondary)
+            Label("Dislikes are taste preferences. Add allergies on the allergy page.", systemImage: "leaf")
+                .font(.subheadline).kitchenCard()
+            Button { showIngredients = true } label: {
+                Label("Choose ingredients", systemImage: "magnifyingglass").frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.bordered).tint(Theme.green)
+            let names = (preferences.dislikedFoodIDs ?? []).compactMap { store.catalog?.food($0)?.name }.sorted()
+            Text(names.isEmpty ? "No ingredients avoided" : "\(names.count) selected: " + names.prefix(5).joined(separator: ", ") + (names.count > 5 ? "…" : ""))
+                .font(.subheadline).foregroundStyle(.secondary)
         }
     }
     private var guidance: some View {
