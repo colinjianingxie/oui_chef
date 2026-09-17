@@ -1,0 +1,6 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'backend/Dockerfile', '-t', 'us-east1-docker.pkg.dev/$PROJECT_ID/oui-chef/voice:dev', '.']
+images: ['us-east1-docker.pkg.dev/$PROJECT_ID/oui-chef/voice:dev']
+options:
+  logging: CLOUD_LOGGING_ONLY

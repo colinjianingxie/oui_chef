@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+firebase-debug*.log
+.firebase/
+.env*
+*.xcconfig.local
+node_modules/
+__pycache__/
+Configuration/Voice.local.plist

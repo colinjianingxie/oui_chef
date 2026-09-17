@@ -1,0 +1,816 @@
+{
+  "schemaVersion": 1,
+  "foods": [
+    {
+      "id": "flour",
+      "name": "Wheat flour",
+      "allergens": [
+        "wheat",
+        "gluten"
+      ],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "water",
+      "name": "Water",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "yeast",
+      "name": "Instant yeast",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "salt",
+      "name": "Salt",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "sugar",
+      "name": "Sugar",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "tomato",
+      "name": "Canned tomatoes",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "oil",
+      "name": "Olive oil",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "garlic",
+      "name": "Garlic",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "pasta",
+      "name": "Dried wheat spaghetti",
+      "allergens": [
+        "wheat",
+        "gluten"
+      ],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "tequila",
+      "name": "Tequila",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": false
+    },
+    {
+      "id": "liqueur",
+      "name": "Orange liqueur",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": false
+    },
+    {
+      "id": "lime",
+      "name": "Lime juice",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    },
+    {
+      "id": "ice",
+      "name": "Ice",
+      "allergens": [],
+      "constituents": [],
+      "compositionKnown": true
+    }
+  ],
+  "recipes": [
+    {
+      "id": "spaghetti",
+      "version": 1,
+      "title": "Sunday Spaghetti",
+      "subtitle": "A little garlic. A slow simmer. A very good dinner.",
+      "style": "pasta",
+      "tags": [
+        "Dinner",
+        "Vegetarian",
+        "Vegan"
+      ],
+      "minutes": "30 min",
+      "activeMinutes": 15,
+      "baseServings": 2,
+      "maximumServings": 4,
+      "yieldLabel": "servings",
+      "source": "Oui Chef development recipe. Kitchen review pending.",
+      "ingredients": [
+        {
+          "id": "pasta",
+          "foodID": "pasta",
+          "name": "Dried spaghetti",
+          "amount": 200,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "tomatoes",
+          "foodID": "tomato",
+          "name": "Crushed tomatoes",
+          "amount": 400,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "olive_oil",
+          "foodID": "oil",
+          "name": "Olive oil",
+          "amount": 20,
+          "unit": "mL",
+          "scales": true
+        },
+        {
+          "id": "garlic",
+          "foodID": "garlic",
+          "name": "Garlic cloves",
+          "amount": 2,
+          "unit": "cloves",
+          "scales": true
+        },
+        {
+          "id": "sauce_salt",
+          "foodID": "salt",
+          "name": "Salt for sauce",
+          "amount": 2,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "pasta_salt",
+          "foodID": "salt",
+          "name": "Salt for pasta water",
+          "amount": 10,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "pasta_water",
+          "foodID": "water",
+          "name": "Water for pasta",
+          "amount": 2,
+          "unit": "L",
+          "scales": true
+        }
+      ],
+      "tools": [
+        "Large pot",
+        "Saucepan",
+        "Colander",
+        "Spoon"
+      ],
+      "ratios": [
+        {
+          "id": "sauce_balance",
+          "title": "Sauce to pasta",
+          "ingredientID": "tomatoes",
+          "baseIngredientID": "pasta",
+          "minimum": 1.5,
+          "maximum": 2.5,
+          "step": 0.1,
+          "explanation": "Keep the pasta amount fixed; adjust tomatoes before starting the sauce."
+        }
+      ],
+      "nodes": [
+        {
+          "id": "prep",
+          "kind": "action",
+          "title": "Prepare the garlic",
+          "instruction": "Peel and finely chop the garlic. Measure the other ingredients.",
+          "criterion": "Is the garlic finely chopped?",
+          "dependsOn": [],
+          "inputs": [
+            "garlic"
+          ],
+          "outputs": [
+            "chopped_garlic"
+          ],
+          "tools": [],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 120
+        },
+        {
+          "id": "boil",
+          "kind": "action",
+          "title": "Bring water to a boil",
+          "instruction": "Add the measured water and pasta-water salt to a large pot. Bring to a boil.",
+          "criterion": "Is the water at a rolling boil?",
+          "dependsOn": [],
+          "inputs": [
+            "pasta_water",
+            "pasta_salt"
+          ],
+          "outputs": [
+            "boiling_water"
+          ],
+          "tools": [
+            "Large pot"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 480
+        },
+        {
+          "id": "saute",
+          "kind": "action",
+          "title": "Soften the garlic",
+          "instruction": "Warm the olive oil in a saucepan over medium-low heat. Add the garlic and stir until fragrant and lightly golden.",
+          "criterion": "Is the garlic fragrant and lightly golden, without dark edges?",
+          "dependsOn": [
+            "prep"
+          ],
+          "inputs": [
+            "olive_oil",
+            "chopped_garlic"
+          ],
+          "outputs": [
+            "garlic_oil"
+          ],
+          "tools": [
+            "Saucepan"
+          ],
+          "durationSeconds": 90,
+          "recheckSeconds": 30,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 40,
+              "text": "How is the garlic looking? We want lightly golden edges; lower the heat if it is darkening quickly."
+            }
+          ]
+        },
+        {
+          "id": "simmer",
+          "kind": "wait",
+          "title": "Simmer the sauce",
+          "instruction": "Add the tomatoes and sauce salt to the garlic oil. Bring to a gentle simmer and stir occasionally. Start when the sauce is simmering.",
+          "criterion": "Has the sauce thickened enough to coat a spoon?",
+          "dependsOn": [
+            "saute"
+          ],
+          "inputs": [
+            "garlic_oil",
+            "tomatoes",
+            "sauce_salt"
+          ],
+          "outputs": [
+            "tomato_sauce"
+          ],
+          "tools": [
+            "Saucepan"
+          ],
+          "durationSeconds": 900,
+          "recheckSeconds": 180,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 420,
+              "text": "How is the sauce coming along? It should be gently bubbling. Give it a stir and check whether it is starting to thicken."
+            }
+          ]
+        },
+        {
+          "id": "cook_pasta",
+          "kind": "wait",
+          "title": "Cook the spaghetti",
+          "instruction": "Add spaghetti to the boiling water and stir. The 8-minute reminder is a starting point; use the package time and check the texture. Start when the pasta is in the water.",
+          "criterion": "Have you tasted a cooled piece? It should be tender with the bite you like.",
+          "dependsOn": [
+            "boil"
+          ],
+          "inputs": [
+            "boiling_water",
+            "pasta"
+          ],
+          "outputs": [
+            "cooked_pasta"
+          ],
+          "tools": [
+            "Large pot"
+          ],
+          "durationSeconds": 480,
+          "recheckSeconds": 60,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 360,
+              "text": "We are getting close. Check your pasta packet, and let me know when a cooled piece has the bite you like."
+            }
+          ]
+        },
+        {
+          "id": "combine",
+          "kind": "action",
+          "title": "Bring it all together",
+          "instruction": "Reserve a little pasta water, drain the spaghetti, and toss it with the sauce. Add reserved water a spoonful at a time if needed.",
+          "criterion": "Does the sauce coat the pasta evenly?",
+          "dependsOn": [
+            "cook_pasta",
+            "simmer"
+          ],
+          "inputs": [
+            "cooked_pasta",
+            "tomato_sauce"
+          ],
+          "outputs": [
+            "finished_spaghetti"
+          ],
+          "tools": [
+            "Colander",
+            "Spoon"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 90
+        },
+        {
+          "id": "serve",
+          "kind": "checkpoint",
+          "title": "Dinner is ready",
+          "instruction": "Divide the spaghetti between your bowls and serve.",
+          "criterion": "Is everything plated and ready to enjoy?",
+          "dependsOn": [
+            "combine"
+          ],
+          "inputs": [
+            "finished_spaghetti"
+          ],
+          "outputs": [
+            "served_spaghetti"
+          ],
+          "tools": [],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 30
+        }
+      ]
+    },
+    {
+      "id": "bread",
+      "version": 1,
+      "title": "Your First Loaf",
+      "subtitle": "Flour-dusted hands. A golden crust. You made this.",
+      "style": "bread",
+      "tags": [
+        "Baking",
+        "Vegetarian",
+        "Vegan"
+      ],
+      "minutes": "3\u20134 hr",
+      "activeMinutes": 25,
+      "baseServings": 1,
+      "maximumServings": 1,
+      "yieldLabel": "loaf",
+      "source": "Development adaptation; method reference: https://www.kingarthurbaking.com/recipes/hearth-bread-recipe . Kitchen review pending.",
+      "ingredients": [
+        {
+          "id": "flour",
+          "foodID": "flour",
+          "name": "All-purpose wheat flour",
+          "amount": 350,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "water",
+          "foodID": "water",
+          "name": "Lukewarm water",
+          "amount": 227,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "yeast",
+          "foodID": "yeast",
+          "name": "Instant yeast",
+          "amount": 3.5,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "salt",
+          "foodID": "salt",
+          "name": "Salt",
+          "amount": 9,
+          "unit": "g",
+          "scales": true
+        },
+        {
+          "id": "sugar",
+          "foodID": "sugar",
+          "name": "Sugar",
+          "amount": 7,
+          "unit": "g",
+          "scales": true
+        }
+      ],
+      "tools": [
+        "Mixing bowl",
+        "Baking tray",
+        "Oven",
+        "Cooling rack"
+      ],
+      "ratios": [
+        {
+          "id": "hydration",
+          "title": "Water to flour",
+          "ingredientID": "water",
+          "baseIngredientID": "flour",
+          "minimum": 0.63,
+          "maximum": 0.68,
+          "step": 0.01,
+          "explanation": "Flour stays fixed. More water makes a softer, stickier dough; use the texture checks rather than adding extra flour automatically."
+        }
+      ],
+      "nodes": [
+        {
+          "id": "mix",
+          "kind": "action",
+          "title": "Mix the dough",
+          "instruction": "Combine flour, yeast, salt, sugar, and lukewarm water until no dry pockets remain.",
+          "criterion": "Have all the ingredients come together?",
+          "dependsOn": [],
+          "inputs": [
+            "flour",
+            "water",
+            "yeast",
+            "salt",
+            "sugar"
+          ],
+          "outputs": [
+            "mixed_dough"
+          ],
+          "tools": [
+            "Mixing bowl"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 120
+        },
+        {
+          "id": "knead",
+          "kind": "action",
+          "title": "Knead the dough",
+          "instruction": "Knead on a clean surface until smooth and elastic. Use a light dusting of flour only if needed.",
+          "criterion": "Does the dough feel smooth and stretchy?",
+          "dependsOn": [
+            "mix"
+          ],
+          "inputs": [
+            "mixed_dough"
+          ],
+          "outputs": [
+            "kneaded_dough"
+          ],
+          "tools": [],
+          "durationSeconds": 480,
+          "recheckSeconds": 120,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 240,
+              "text": "How does the dough feel now? Look for a smoother surface and more stretch."
+            }
+          ]
+        },
+        {
+          "id": "first_proof",
+          "kind": "wait",
+          "title": "First rise",
+          "instruction": "Cover the dough in its bowl and leave in a comfortably warm place. Start this timer once it is resting.",
+          "criterion": "Has the dough grown to roughly twice its original volume?",
+          "dependsOn": [
+            "knead"
+          ],
+          "inputs": [
+            "kneaded_dough"
+          ],
+          "outputs": [
+            "first_risen_dough"
+          ],
+          "tools": [
+            "Mixing bowl"
+          ],
+          "durationSeconds": 3600,
+          "recheckSeconds": 900,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 2700,
+              "text": "This is the first rise. How is the volume looking? We are checking growth, not just the clock."
+            }
+          ]
+        },
+        {
+          "id": "shape",
+          "kind": "action",
+          "title": "Shape the loaf",
+          "instruction": "Gently release large air pockets, form a loaf, and place on a lined baking tray. Cover loosely.",
+          "criterion": "Is the shaped loaf covered on the tray?",
+          "dependsOn": [
+            "first_proof"
+          ],
+          "inputs": [
+            "first_risen_dough"
+          ],
+          "outputs": [
+            "shaped_dough"
+          ],
+          "tools": [
+            "Baking tray"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 120
+        },
+        {
+          "id": "second_proof",
+          "kind": "wait",
+          "title": "Second rise",
+          "instruction": "Let the shaped dough rise again until noticeably puffy. Start when the covered loaf is resting.",
+          "criterion": "Is the shaped loaf noticeably puffier than when you started?",
+          "dependsOn": [
+            "shape"
+          ],
+          "inputs": [
+            "shaped_dough"
+          ],
+          "outputs": [
+            "ready_dough"
+          ],
+          "tools": [
+            "Baking tray"
+          ],
+          "durationSeconds": 2700,
+          "recheckSeconds": 600,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 1800,
+              "text": "We are on the second rise now. How is your shaped loaf looking\u2014has it become noticeably puffy?"
+            }
+          ]
+        },
+        {
+          "id": "preheat",
+          "kind": "action",
+          "title": "Preheat the oven",
+          "instruction": "Set the oven to 220\u00b0C / 425\u00b0F. Keep the rising dough outside the oven.",
+          "criterion": "Has the oven reached 220\u00b0C / 425\u00b0F?",
+          "dependsOn": [
+            "shape"
+          ],
+          "inputs": [],
+          "outputs": [
+            "hot_oven"
+          ],
+          "tools": [
+            "Oven"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 600
+        },
+        {
+          "id": "bake",
+          "kind": "wait",
+          "title": "Bake the loaf",
+          "instruction": "Uncover the loaf and carefully place its tray in the heated oven. Start the timer after it goes in.",
+          "criterion": "Is the loaf deeply golden, with a firm crust? Check the center is baked through before cooling.",
+          "dependsOn": [
+            "second_proof",
+            "preheat"
+          ],
+          "inputs": [
+            "ready_dough",
+            "hot_oven"
+          ],
+          "outputs": [
+            "baked_bread"
+          ],
+          "tools": [
+            "Oven",
+            "Baking tray"
+          ],
+          "durationSeconds": 2100,
+          "recheckSeconds": 300,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 1500,
+              "text": "How is the crust coloring? Check through the oven window if you can; we are looking for a golden crust."
+            }
+          ]
+        },
+        {
+          "id": "cool",
+          "kind": "wait",
+          "title": "Cool the bread",
+          "instruction": "Using oven mitts, move the loaf to a rack. Let it cool before slicing.",
+          "criterion": "Has the loaf cooled enough to slice without a gummy center?",
+          "dependsOn": [
+            "bake"
+          ],
+          "inputs": [
+            "baked_bread"
+          ],
+          "outputs": [
+            "cooled_bread"
+          ],
+          "tools": [
+            "Cooling rack"
+          ],
+          "durationSeconds": 1800,
+          "recheckSeconds": 600,
+          "coachingCues": []
+        }
+      ]
+    },
+    {
+      "id": "margarita",
+      "version": 1,
+      "title": "The Classic Margarita",
+      "subtitle": "Bright lime, good tequila, and a moment to unwind.",
+      "style": "tequila",
+      "tags": [
+        "Drinks",
+        "Alcohol"
+      ],
+      "minutes": "5 min",
+      "activeMinutes": 5,
+      "baseServings": 1,
+      "maximumServings": 2,
+      "yieldLabel": "drinks",
+      "source": "Ratio reference: https://iba-world.com/iba-cocktail/margarita/ . Original guidance; kitchen review pending.",
+      "ingredients": [
+        {
+          "id": "tequila",
+          "foodID": "tequila",
+          "name": "Blanco tequila",
+          "amount": 50,
+          "unit": "mL",
+          "scales": true
+        },
+        {
+          "id": "liqueur",
+          "foodID": "liqueur",
+          "name": "Orange liqueur",
+          "amount": 20,
+          "unit": "mL",
+          "scales": true
+        },
+        {
+          "id": "lime",
+          "foodID": "lime",
+          "name": "Fresh lime juice",
+          "amount": 15,
+          "unit": "mL",
+          "scales": true
+        },
+        {
+          "id": "ice",
+          "foodID": "ice",
+          "name": "Ice cubes",
+          "amount": 6,
+          "unit": "cubes",
+          "scales": true
+        }
+      ],
+      "tools": [
+        "Cocktail shaker",
+        "Measuring jigger",
+        "Strainer",
+        "Serving glass"
+      ],
+      "ratios": [
+        {
+          "id": "sweetness",
+          "title": "Liqueur to tequila",
+          "ingredientID": "liqueur",
+          "baseIngredientID": "tequila",
+          "minimum": 0.2,
+          "maximum": 0.6,
+          "step": 0.05,
+          "explanation": "Keep tequila fixed; adjust liqueur before mixing. This changes flavor balance and total volume."
+        },
+        {
+          "id": "citrus",
+          "title": "Lime to tequila",
+          "ingredientID": "lime",
+          "baseIngredientID": "tequila",
+          "minimum": 0.2,
+          "maximum": 0.5,
+          "step": 0.05,
+          "explanation": "Keep tequila fixed; adjust the lime for a brighter or softer balance."
+        }
+      ],
+      "nodes": [
+        {
+          "id": "measure",
+          "kind": "action",
+          "title": "Measure your ingredients",
+          "instruction": "Measure the tequila, orange liqueur, and fresh lime juice using the quantities above.",
+          "criterion": "Are the measured ingredients ready to combine?",
+          "dependsOn": [],
+          "inputs": [],
+          "outputs": [
+            "measured_ingredients"
+          ],
+          "tools": [
+            "Measuring jigger"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 60
+        },
+        {
+          "id": "shake",
+          "kind": "action",
+          "title": "Shake with ice",
+          "instruction": "Add the measured ingredients and ice to the shaker. Seal firmly and shake. For two drinks, split into batches if your shaker is crowded.",
+          "criterion": "Does the shaker feel thoroughly cold?",
+          "dependsOn": [
+            "measure"
+          ],
+          "inputs": [
+            "measured_ingredients",
+            "tequila",
+            "liqueur",
+            "lime",
+            "ice"
+          ],
+          "outputs": [
+            "chilled_margarita"
+          ],
+          "tools": [
+            "Cocktail shaker"
+          ],
+          "durationSeconds": 15,
+          "recheckSeconds": 5,
+          "coachingCues": [
+            {
+              "id": "cue_0",
+              "afterSeconds": 8,
+              "text": "Keep the shaker firmly closed. Let me know when it feels nice and cold."
+            }
+          ]
+        },
+        {
+          "id": "strain",
+          "kind": "checkpoint",
+          "title": "Pour and enjoy",
+          "instruction": "Strain into your serving glass, leaving the ice in the shaker.",
+          "criterion": "Is your drink strained and ready?",
+          "dependsOn": [
+            "shake"
+          ],
+          "inputs": [
+            "chilled_margarita"
+          ],
+          "outputs": [
+            "served_margarita"
+          ],
+          "tools": [
+            "Strainer",
+            "Serving glass"
+          ],
+          "durationSeconds": null,
+          "recheckSeconds": null,
+          "coachingCues": [],
+          "checkAfterSeconds": 30
+        }
+      ]
+    }
+  ]
+}
