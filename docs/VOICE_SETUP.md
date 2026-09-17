@@ -11,7 +11,7 @@ Oui Chef uses xAI only for the proof of concept. The next provider is planned to
 - xAI model: `grok-voice-think-fast-2.0`; voice: `eve`.
 - Secret: `XAI_API_KEY` version **1**, bound to ready revision `oui-chef-voice-00005-vqf` on September 16, 2026 (US Eastern).
 - Firebase Auth: signed-in Google, Apple, email/password, or phone accounts. Voice no longer requires tester enrollment. Anonymous guests are prompted to sign in through Profile. A user ID is an account identifier, not an iPhone hardware ID.
-- Firestore: default database holds server-owned account access overrides, legacy enrollment transfers, and the voice usage ledger. Client reads/writes are denied. Recipe/session sync is not implemented.
+- Firestore: default database holds server-owned account access overrides, legacy enrollment transfers, and the voice usage ledger. Client access to voice bookkeeping is denied. The catalog now has separate published/draft read rules; cooking-session snapshots remain local to each account.
 - App Check remains deferred for this limited TestFlight proof of concept. Sign-in is required; app attestation and per-user quotas remain work for a public rollout.
 
 ## Test on your iPhone
@@ -91,3 +91,7 @@ Revision `oui-chef-voice-00005-vqf` serves the account-based access and three-se
 ## Ingredient catalog update
 
 The shared prompt and tool description now match ingredient-only verification. Voice context includes current ingredient preference reviews and restrictions from the selected recipe snapshot, including approved substitutions. These instructions are deployed in revision `oui-chef-voice-00006-m6g`, serving 100% of traffic. Cloud Build: `a37537b1-3c48-4409-ba67-342c2f304ea1`; image digest: `sha256:9c94c72258b00c1e1395662896f5857cec1c22d0e9e984ba3d00de945df73157`. The health and authentication smoke check passed, including three signed-in connections across two temporary accounts. Temporary accounts were removed and no xAI calls were made. The corresponding native build is TestFlight 1.0 (3).
+
+## Firestore catalog deployment
+
+Revision `oui-chef-voice-00007-lcd` serves 100% of traffic. Cloud Build: `2835f1cc-ee44-4ab0-bf9a-de2ed9ff1b66`; image digest: `sha256:d50150030164ec3e5dbf13f4e07988d2d141d02fc74b600913f8cdb65202c00d`. Adds authenticated publication of validated drafts and the `find_recipes` voice operation. Voice receives at most 12 recipe summaries and the active cooking graph. The current account, session and connection are checked after asynchronous recipe loading. Health, unauthenticated publication rejection, live Firestore queries, and 12 backend tests passed without paid AI calls. Existing voice budget and concurrency settings are unchanged.

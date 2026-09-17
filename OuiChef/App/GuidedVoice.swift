@@ -18,7 +18,7 @@ final class GuidedVoice: NSObject, AVSpeechSynthesizerDelegate {
     var onCommand: ((String) -> Void)?
     var onReady: (() -> Void)?
     var context: (() -> [String: Any])?
-    var onTool: ((String, String, String) -> String)?
+    var onTool: ((String, String, String) async -> String)?
     var onAssistantText: ((String) -> Void)?
     private(set) var userTurn = 0
     private(set) var usingCloud = false
@@ -33,6 +33,8 @@ final class GuidedVoice: NSObject, AVSpeechSynthesizerDelegate {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var recognition: SFSpeechRecognitionTask?
     private var debounce: Task<Void, Never>?
+    private var toolTask: Task<Void, Never>?
+    var connectionID: UUID { generation }
     private var generation = UUID()
     private var tapInstalled = false
     private var observer: NSObjectProtocol?
@@ -177,6 +179,7 @@ final class GuidedVoice: NSObject, AVSpeechSynthesizerDelegate {
         if enabled { status = "Listening" }
     }
     func stop() {
+        toolTask?.cancel(); toolTask = nil
         cloud.stop()
         enabled = false
         isListening = false
@@ -229,8 +232,14 @@ final class GuidedVoice: NSObject, AVSpeechSynthesizerDelegate {
         case "tool":
             guard let callID = event["callID"] as? String, let name = event["name"] as? String,
                   let arguments = event["arguments"] as? String else { return }
-            let output = onTool?(callID, name, arguments) ?? "{\"error\":\"Cooking tools are unavailable\"}"
-            cloud.send(["type": "tool_result", "callID": callID, "output": output, "context": context?() ?? [:]])
+            let previous = toolTask, connection = generation
+            toolTask = Task { [weak self] in
+                await previous?.value
+                guard let self, self.generation == connection, !Task.isCancelled else { return }
+                let output = await self.onTool?(callID, name, arguments) ?? "{}"
+                guard self.generation == connection, !Task.isCancelled else { return }
+                self.cloud.send(["type": "tool_result", "callID": callID, "output": output, "context": self.context?() ?? [:]])
+            }
         case "ended", "error":
             let message = event["message"] as? String ?? "Voice ended. Your timers continue."
             stop(); status = message

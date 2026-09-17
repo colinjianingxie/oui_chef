@@ -10,13 +10,11 @@ struct KitchenView: View {
     @Namespace private var voiceTransition
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var filteredRecipes: [Recipe] {
-        store.recipes.filter { recipe in
-            (query.isEmpty || (recipe.title + " " + recipe.tags.joined(separator: " ") + " " + recipe.style.rawValue).localizedCaseInsensitiveContains(query))
-            && (filter == "All" || filter == "Free" || recipe.tags.contains(filter))
-            && (tab != "Saved" || store.archive.savedRecipes.contains(recipe.id))
-        }
+    private var filteredRecipes: [RecipeSummary] {
+        store.recipeCards.filter { tab != "Saved" || store.archive.savedRecipes.contains($0.id) }
     }
+    private var catalogQuery: String { [query, filter, tab, store.selectedSetID ?? "", String(store.previewDrafts)].joined(separator: "|") }
+    private var classification: String? { filter == "All" ? nil : filter }
 
     var body: some View {
         ZStack {
@@ -71,14 +69,26 @@ struct KitchenView: View {
         .onPreferenceChange(VoiceOriginKey.self) { if let origin = $0 { voiceOrigin = origin } }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: store.showingVoice)
         .sheet(isPresented: $showSettings) { OnboardingView(store: store, editing: true) }
-        .sheet(item: Binding(get: { store.recipes.first { $0.id == store.selectedRecipeID } }, set: { store.selectedRecipeID = $0?.id })) { recipe in
-            RecipeDetailView(store: store, recipe: recipe)
+        .sheet(isPresented: Binding(get: { store.selectedRecipeID != nil }, set: { if !$0 { store.selectedRecipeID = nil } })) {
+            if let recipe = store.selectedRecipe { RecipeDetailView(store: store, recipe: recipe) }
+            else {
+                NavigationStack {
+                    Group {
+                        if store.detailLoading { ProgressView("Opening recipe…") }
+                        else { ContentUnavailableView("Recipe unavailable", systemImage: "book.closed", description: Text(store.detailError ?? "Please try again.")) }
+                    }.toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { store.selectedRecipeID = nil } } }
+                }
+            }
+        }
+        .task(id: catalogQuery) {
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            await store.loadCards(search: query, classification: classification, saved: tab == "Saved")
         }
     }
 
     private var catalog: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 25) {
+            LazyVStack(alignment: .leading, spacing: 25) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(tab == "Home" ? "YOUR KITCHEN, A LITTLE CALMER" : "A LITTLE INSPIRATION").font(.system(size: 10, weight: .semibold)).tracking(2.2).foregroundStyle(Theme.green)
                     Text(tab == "Home" ? "Good food\nstarts here." : tab == "Saved" ? "Your favorites." : "Something\ndelicious awaits.")
@@ -106,6 +116,29 @@ struct KitchenView: View {
                     if store.voice.enabled { Text(store.chefMessage).font(.subheadline).kitchenCard() }
                 }
 
+                if let notice = store.catalogNotice { Text(notice).font(.caption).foregroundStyle(.secondary) }
+                if store.catalogAdmin {
+                    Toggle("Preview drafts", isOn: $store.previewDrafts).tint(Theme.green)
+                        .onChange(of: store.previewDrafts) { _, _ in store.selectedSetID = nil; query = ""; filter = "All" }
+                }
+                if !store.previewDrafts && tab != "Saved" {
+                    Text("Recipe sets").font(Theme.serif(25))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            Button("All recipes") { store.selectedSetID = nil }.buttonStyle(.bordered)
+                            ForEach(store.recipeSets) { set in
+                                Button { store.selectedSetID = set.id } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(set.title).font(.headline)
+                                        Text(set.chefName + " · " + set.price.label).font(.caption)
+                                        Text(set.classificationIDs.compactMap { id in store.classifications.first { $0.id == id }?.name }.joined(separator: " · ")).font(.caption2)
+                                    }.padding(14).background(store.selectedSetID == set.id ? Theme.sage : .white, in: RoundedRectangle(cornerRadius: 16))
+                                }.buttonStyle(.plain)
+                            }
+                            if store.hasMoreSets { Button("More sets") { Task { await store.moreSets() } } }
+                        }
+                    }
+                }
                 HStack {
                     Text(tab == "Saved" ? "Saved recipes" : "From our kitchen").font(Theme.serif(25))
                     Spacer()
@@ -113,29 +146,34 @@ struct KitchenView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(["All", "Free", "Dinner", "Baking", "Drinks"], id: \.self) { item in
+                        ForEach(["All"] + store.classifications.filter { $0.appliesTo.contains("recipe") }.map(\.id), id: \.self) { item in
                             Button { filter = item } label: {
-                                Text(item).font(.subheadline).padding(.horizontal, 18).padding(.vertical, 10)
+                                Text(store.classifications.first { $0.id == item }?.name ?? item).font(.subheadline).padding(.horizontal, 18).padding(.vertical, 10)
                                     .background(filter == item ? Theme.green : .white.opacity(0.65), in: Capsule())
                                     .foregroundStyle(filter == item ? .white : Theme.ink)
                             }.accessibilityAddTraits(filter == item ? .isSelected : [])
                         }
                     }
                 }
-                if filteredRecipes.isEmpty {
-                    ContentUnavailableView(tab == "Saved" ? "Your recipe box is waiting" : "No recipes found", systemImage: "leaf", description: Text(tab == "Saved" ? "Tap a bookmark to save something delicious." : "Try pasta, bread, or margarita."))
+                if filteredRecipes.isEmpty && !store.catalogLoading {
+                    ContentUnavailableView(store.previewDrafts ? "No drafts to review" : tab == "Saved" ? "Your recipe box is waiting" : "No recipes found", systemImage: "leaf", description: Text(store.previewDrafts ? "Imported drafts appear here before you publish them." : tab == "Saved" ? "Tap a bookmark to save something delicious." : "Try pasta, bread, or margarita."))
                 }
                 ForEach(filteredRecipes) { recipe in recipeCard(recipe) }
+                if store.catalogLoading { ProgressView("Loading recipes…").frame(maxWidth: .infinity) }
+                else if store.hasMoreRecipes {
+                    Button("Load more recipes") { Task { await store.loadCards(search: query, classification: classification, more: true, saved: tab == "Saved") } }
+                        .buttonStyle(.bordered).frame(maxWidth: .infinity)
+                }
                 Text("SIMPLE INGREDIENTS. EXTRAORDINARY MOMENTS.")
                     .font(.system(size: 9, weight: .medium)).tracking(1.7).foregroundStyle(Theme.green)
                     .frame(maxWidth: .infinity).padding(.vertical, 15)
             }.padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 20)
-        }
+        }.refreshable { await store.loadLibrary(); await store.loadCards(search: query, classification: classification, saved: tab == "Saved") }
     }
 
-    private func recipeCard(_ recipe: Recipe) -> some View {
+    private func recipeCard(_ recipe: RecipeSummary) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { store.selectedRecipeID = recipe.id } label: {
+            Button { store.openRecipe(recipe.id) } label: {
                 RecipeArtwork(style: recipe.style).frame(height: 185)
                     .overlay(alignment: .topLeading) {
                         Label(recipe.minutes, systemImage: "clock").font(.caption.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 7)
@@ -143,11 +181,11 @@ struct KitchenView: View {
                     }
             }.buttonStyle(.plain).accessibilityLabel("View \(recipe.title)")
             HStack(alignment: .top) {
-                Button { store.selectedRecipeID = recipe.id } label: {
+                Button { store.openRecipe(recipe.id) } label: {
                     VStack(alignment: .leading, spacing: 7) {
                         Text(recipe.style.name.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.5).foregroundStyle(Theme.green)
                         Text(recipe.title).font(Theme.serif(27))
-                        Text("Anonymous Chef · Free").font(.caption).foregroundStyle(Theme.green)
+                        Text(recipe.chefName + (store.previewDrafts ? " · Draft preview" : "")).font(.caption).foregroundStyle(Theme.green)
                         Text(recipe.subtitle).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     }
                 }.buttonStyle(.plain)
@@ -187,7 +225,7 @@ struct KitchenView: View {
             .overlay(alignment: .top) { Theme.green.opacity(0.1).frame(height: 1) }
     }
     private func tabButton(_ title: String, symbol: String) -> some View {
-        Button { tab = title; query = ""; filter = "All" } label: {
+        Button { tab = title; query = ""; filter = "All"; store.selectedSetID = nil; if title == "Saved" { store.previewDrafts = false } } label: {
             VStack(spacing: 5) { Image(systemName: symbol + (tab == title ? ".fill" : "")).font(.system(size: 19)); Text(title).font(.system(size: 10)) }
                 .foregroundStyle(tab == title ? Theme.green : .secondary).frame(maxWidth: .infinity).frame(minHeight: 48)
         }.accessibilityAddTraits(tab == title ? .isSelected : [])
@@ -203,6 +241,8 @@ struct RecipeDetailView: View {
     @Bindable var store: ChefStore
     let recipe: Recipe
     @State private var servings = 1
+    @State private var confirmPublish = false
+    @State private var publishing = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -211,8 +251,14 @@ struct RecipeDetailView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     RecipeArtwork(style: recipe.style).frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 24))
                     Text(recipe.title).font(Theme.serif(36))
-                    Text("Anonymous Chef · Free").font(.subheadline).foregroundStyle(Theme.green)
+                    Text((recipe.chefName ?? "Chef Margarita") + (store.draftRevision != nil ? " · Private draft" : "")).font(.subheadline).foregroundStyle(Theme.green)
                     Text(recipe.subtitle).foregroundStyle(.secondary)
+                    if store.catalogAdmin && store.draftRevision != nil {
+                        Button(publishing ? "Publishing…" : "Publish this draft") { confirmPublish = true }.disabled(publishing)
+                            .confirmationDialog("Publish this recipe for everyone with access to its recipe set?", isPresented: $confirmPublish, titleVisibility: .visible) {
+                                Button("Publish recipe") { Task { publishing = true; await store.publishSelectedDraft(); publishing = false } }
+                            }
+                    }
                     HStack(spacing: 20) { Label(recipe.minutes, systemImage: "clock"); Label(recipe.style.name, systemImage: "leaf") }.font(.caption)
                     Stepper("\(recipe.yieldLabel.capitalized): \(servings)", value: $servings, in: 1...recipe.maximumServings)
                     Text("Before we cook").font(Theme.serif(28))

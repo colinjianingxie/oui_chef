@@ -2,7 +2,7 @@ import Foundation
 
 struct VoiceRequest: Codable {
     enum Operation: String, Codable {
-        case state, select_recipe, confirm_ingredient, confirm_tool, confirm_labels
+        case state, find_recipes, select_recipe, confirm_ingredient, confirm_tool, confirm_labels
         case start_node, ask_readiness, complete_node, recheck, pause, resume
         case propose_ratio, confirm_ratio, set_guidance, mute
     }
@@ -14,7 +14,7 @@ struct VoiceRequest: Codable {
     var confirmed: Bool?
 
     func validate(session: CookingSession?) throws {
-        if operation == .state || operation == .mute { return }
+        if operation == .state || operation == .find_recipes || operation == .mute { return }
         guard ![.confirm_ingredient, .confirm_tool, .confirm_labels].contains(operation) else {
             throw CookingError.invalid("Ingredient and product label checks are manual. Ask the user to finish the checklist on screen before cooking.")
         }

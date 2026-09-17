@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 import WebSocket, { WebSocketServer } from 'ws';
 import { Meter, policy, reserveSession, finalizeSession, signedInUID, VoiceAccessError } from './budget.mjs';
 import { openProvider, normalize, sessionUpdate, providerEvent } from './xai.mjs';
+import { handleCatalogRequest } from './catalog.mjs';
 import { handleAccountRequest } from './accounts.mjs';
 
 export function createVoiceServer({ db, auth, connectProvider = openProvider }) {
 const server = createServer((req, res) => {
+  if (req.url === '/catalog/publish') { void handleCatalogRequest(req, res, { db, auth }); return; }
   if (req.url === '/account/claim-voice') { void handleAccountRequest(req, res, { db, auth }); return; }
   res.writeHead(req.url === '/health' ? 200 : 404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ service: 'oui-chef-voice' }));

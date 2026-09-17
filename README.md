@@ -6,13 +6,15 @@ A native iPhone cooking companion with three normalized recipes, persistent cook
 
 Open **OuiChef.xcodeproj**, choose the **OuiChef** scheme and an iPhone simulator or Colin’s connected iPhone, and press Run. Deployment target: iOS 17+. Automatic signing uses Jianing Xie’s development team (`84KXUNPGCM`); other developers should select their own team under Signing & Capabilities. Bundle identifier: `com.xie.ouichef`.
 
-The iOS app uses Apple frameworks, Firebase Core/Auth, and Google Sign-In through Swift Package Manager. The voice server uses Firebase Admin and the `ws` WebSocket package.
+The iOS app uses Apple frameworks, Firebase Core/Auth/Firestore, and Google Sign-In through Swift Package Manager. The voice server uses Firebase Admin and the `ws` WebSocket package.
 
 ## Implemented
 
+- Firestore recipe sets, classified recipe cards, reusable ingredients, cursor pagination, private drafts, immutable publication, and verified catalog-admin access. See [catalog operations](docs/FIRESTORE_CATALOG.md).
+
 - Cream/sage SwiftUI interface based on `designs/`: onboarding, discovery, recipe detail, preparation, cooking, bookmarks, and history.
 - Preferences use short pages and compact choice grids to fit without scrolling at the default text size on iPhone 14; larger accessibility text retains a scrolling fallback.
-- Free starter recipes attributed to **Anonymous Chef**, with a Free category; no subscription is required.
+- Free starter recipes attributed to **Chef Margarita**, in the free Kitchen Essentials recipe set; no subscription is required.
 - Optional Apple, email/password, Google, and phone account screens, account linking, password reset, verification, sign-out, and account deletion.
 - Separate local preferences/history for each signed-in account. The first sign-in adopts a guest kitchen only if the account has no saved kitchen on this iPhone.
 - Three JSON recipe graphs: spaghetti, yeasted bread, margarita. Stable ingredient/state IDs, dependencies, equipment scheduling, actions, waits, and checkpoints.
@@ -47,7 +49,7 @@ Release packaging and upload instructions: [TestFlight setup](docs/TESTFLIGHT.md
 - Firebase SDK configuration: `Configuration/GoogleService-Info.plist` (project identifiers, not a server credential).
 - `.firebaserc` points to the development project.
 
-Blaze is enabled. The Cloud Run voice backend is deployed with a dedicated, restricted service account. Firebase Auth verifies each user’s identity. Google, Apple, email/password, and phone accounts can use voice without manual enrollment; anonymous guests receive a sign-in prompt. An explicit `voiceTesters/{uid}.enabled = false` still blocks an account. Firestore stores the server-only usage ledger. Secret Manager version 1 of `XAI_API_KEY` is bound to the ready backend revision; the key is never included in the iPhone app.
+Blaze is enabled. The Cloud Run voice backend is deployed with a dedicated, restricted service account. Firebase Auth verifies each user’s identity. Google, Apple, email/password, and phone accounts can use voice without manual enrollment; anonymous guests receive a sign-in prompt. An explicit `voiceTesters/{uid}.enabled = false` still blocks an account. Firestore stores the shared recipe and ingredient catalog alongside the server-only voice ledger. Published recipe cards and ingredients are readable by users; drafts and paid cooking graphs have separate access checks. Secret Manager version 1 of `XAI_API_KEY` is bound to the ready backend revision; the key is never included in the iPhone app.
 
 Apple, Google, email/password, and phone providers are enabled. Phone SMS is restricted to US numbers in development. Cooking-history/preference sync, product analytics, and Crashlytics remain future work. See [account setup](docs/AUTH_SETUP.md). Voice cost telemetry is separate from opt-in product analytics. Firebase costs are separate from the user's $17 xAI credit; server guardrails reserve a conservative $15 testing allowance.
 
@@ -72,3 +74,5 @@ Recipe content and adjustment ranges are development content awaiting kitchen re
 One cooking session on one iPhone is supported. Ratio changes after mixing, live multi-device handoff, camera checks, arbitrary substitutions, and lock-screen listening are not implemented. Elapsed timers restore using device wall-clock deadlines; handling manual device-clock changes remains a follow-up. The development voice relay has a 10-minute connection/audio allowance, explicit reconnects, and a shared testing budget; these are development controls, not the final long-session experience.
 
 The complete product scope and delivery sequence are in [the MVP plan](docs/MVP_PLAN.md).
+
+Catalog update validation: 18 Swift core tests, 12 backend tests including real Firestore emulator access rules, and the iPhone 14 / iOS 18.4 cloud-catalog cooking flow passed. Live recipe/set queries and ingredient search passed after index deployment. No paid AI calls were made for this update.

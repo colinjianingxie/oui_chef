@@ -1,7 +1,43 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // The current voice ledger and tester allowlist are server/admin-only.
+    function admin() {
+      return request.auth != null && request.auth.token.email_verified == true
+        && get(/databases/$(database)/documents/catalogAdmins/$(request.auth.token.email.lower())).data.enabled == true;
+    }
+    function owns(chefID) {
+      return request.auth != null && get(/databases/$(database)/documents/chefs/$(chefID)).data.ownerUID == request.auth.uid;
+    }
+    function manages(chefID) { return admin() || owns(chefID); }
+    function entitled(setID) {
+      let pack = get(/databases/$(database)/documents/recipeSets/$(setID)).data;
+      return pack.status == 'published' && (pack.price.kind == 'free' ||
+        (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)/recipeSetEntitlements/$(setID)).data.expiresAt > request.time));
+    }
+    match /catalogAdmins/{email} {
+      allow get: if request.auth != null && request.auth.token.email_verified == true && request.auth.token.email.lower() == email;
+    }
+    match /chefs/{id} {
+      allow read: if resource.data.status == 'published' || admin() || (request.auth != null && resource.data.ownerUID == request.auth.uid);
+    }
+    match /recipeSets/{id} {
+      allow read: if resource.data.status == 'published' || manages(resource.data.chefID);
+    }
+    match /recipes/{id} {
+      // Cards contain only deliberately public metadata. Draft edits live in versions/draft.
+      allow read: if resource.data.status == 'published' || manages(resource.data.chefID);
+      match /versions/{version} {
+        allow get: if manages(get(/databases/$(database)/documents/recipes/$(id)).data.chefID) ||
+          (version != 'draft' && resource.data.published == true &&
+           get(/databases/$(database)/documents/recipes/$(id)).data.status == 'published' &&
+           entitled(get(/databases/$(database)/documents/recipes/$(id)).data.recipeSetID));
+      }
+    }
+    match /ingredients/{id} { allow read: if true; }
+    match /ingredientCategories/{id} { allow read: if true; }
+    match /classifications/{id} { allow read: if true; }
+    match /users/{uid}/recipeSetEntitlements/{id} { allow get: if request.auth != null && request.auth.uid == uid; }
+    // Authoring/publication and billing use the trusted backend. No client writes.
     match /{document=**} { allow read, write: if false; }
   }
 }

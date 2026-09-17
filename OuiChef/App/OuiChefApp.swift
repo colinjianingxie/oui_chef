@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseCore
 import FirebaseAuth
+import FirebaseFirestore
 import GoogleSignIn
 
 @main
@@ -29,6 +30,7 @@ private struct ChefRootView: View {
                     KitchenView(store: store)
                 }
             }
+                .task { await store.loadLibrary() }
                 .onAppear {
                     account.onDeleteLocalAccount = { [weak store] uid in try store?.eraseAccountKitchen(uid) }
                 }
@@ -58,13 +60,26 @@ private struct ChefRootView: View {
 
 final class AuthAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--auth-emulator"),
+           let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"), let options = FirebaseOptions(contentsOfFile: path) {
+            options.projectID = "demo-ouichef"
+            FirebaseApp.configure(options: options)
+        } else { FirebaseApp.configure() }
+        #else
         FirebaseApp.configure()
+        #endif
+        let firestoreSettings = Firestore.firestore().settings
+        firestoreSettings.cacheSettings = MemoryCacheSettings()
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--auth-emulator") {
             Auth.auth().useEmulator(withHost: "127.0.0.1", port: 9099)
             try? Auth.auth().signOut()
+            firestoreSettings.host = "127.0.0.1:8085"
+            firestoreSettings.isSSLEnabled = false
         }
         #endif
+        Firestore.firestore().settings = firestoreSettings
         application.registerForRemoteNotifications()
         return true
     }

@@ -118,6 +118,9 @@ struct Recipe: Codable, Identifiable {
     var nodes: [CookingNode]
     var ratios: [RatioOption]
     var source: String
+    var chefID: String?
+    var chefName: String?
+    var recipeSetID: String?
 
     func node(_ id: String) -> CookingNode? { nodes.first { $0.id == id } }
 }

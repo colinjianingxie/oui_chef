@@ -1,8 +1,10 @@
 # Ingredient catalog and preparation
 
-## Implemented now
+The Firestore implementation supersedes the original delivery roadmap below; see [catalog architecture and operations](FIRESTORE_CATALOG.md). Recipe and ingredient pages now load from Firestore; bundled JSON remains the seed and offline starter fallback.
 
-The three free Anonymous Chef recipes reference one shared ingredient library: **66 foods in 31 categories**. Recipe quantities and preparation names belong to each recipe; identity, classification, composition, aliases, preferences, and artwork belong to the shared food.
+## Ingredient model
+
+The three free Chef Margarita recipes reference one shared ingredient library: **66 foods in 31 categories**. Recipe quantities and preparation names belong to each recipe; identity, classification, composition, aliases, preferences, and artwork belong to the shared food.
 
 Files:
 

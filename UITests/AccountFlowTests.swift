@@ -47,8 +47,7 @@ final class AccountFlowTests: XCTestCase {
             for _ in 0..<4 { app.buttons["Continue"].tap() }
             app.buttons["Let's cook together"].tap()
         }
-        XCTAssertTrue(app.buttons["Free"].waitForExistence(timeout: 10))
-        app.buttons["Free"].tap()
-        XCTAssertTrue(app.staticTexts["Anonymous Chef · Free"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Recipe sets"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Chef Margarita · Free"].firstMatch.exists)
     }
 }

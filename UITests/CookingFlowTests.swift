@@ -3,6 +3,7 @@ import XCTest
 final class CookingFlowTests: XCTestCase {
     func testReadinessTimerPauseAndRelaunch() {
         let app = XCUIApplication()
+        app.launchArguments = ["--auth-emulator"]
         app.launch()
         continueAfterFailure = false
         if app.buttons["Get started"].waitForExistence(timeout: 3) {
@@ -50,15 +51,16 @@ final class CookingFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 5))
         for _ in 0..<3 { app.buttons["Continue"].tap() }
         tap(app.buttons["Choose ingredients"], in: app)
-        let ingredientSearch = app.textFields["Search ingredients or categories"]
+        let ingredientSearch = app.textFields["Search all ingredients"]
         XCTAssertTrue(ingredientSearch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Beet"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["Beet"].isHittable)
         let ingredientGrid = XCTAttachment(screenshot: app.screenshot())
         ingredientGrid.name = "Ingredient library without scrolling"; ingredientGrid.lifetime = .keepAlways; add(ingredientGrid)
         ingredientSearch.tap()
         ingredientSearch.typeText("garlic\n")
         let garlic = app.buttons["Garlic"]
-        XCTAssertTrue(garlic.waitForExistence(timeout: 3))
+        XCTAssertTrue(garlic.waitForExistence(timeout: 10))
         if garlic.value as? String != "Avoid" { garlic.tap() }
         XCTAssertEqual(garlic.value as? String, "Avoid")
         let picker = XCTAttachment(screenshot: app.screenshot())

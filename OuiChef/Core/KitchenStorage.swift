@@ -32,7 +32,10 @@ struct KitchenStorage {
         guard FileManager.default.fileExists(atPath: source.path) else { return AppArchive() }
         let archive = try JSONDecoder().decode(AppArchive.self, from: Data(contentsOf: source))
         guard archive.version == 1 else { throw CookingError.invalid("This saved kitchen uses a newer app format.") }
-        if let saved = archive.session { try RecipeCatalog(schemaVersion: 1, foods: catalog.foods, recipes: [saved.recipe]).validate() }
+        if let saved = archive.session {
+            if let library = saved.ingredientLibrary { try library.validate() }
+            try RecipeCatalog(schemaVersion: 1, foods: saved.ingredientLibrary?.foods ?? catalog.foods, recipes: [saved.recipe]).validate()
+        }
         // Move only after validation. A failed read preserves the original, and sign-out cannot reopen adopted data.
         if source != target { try FileManager.default.moveItem(at: source, to: target) }
         return archive

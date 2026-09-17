@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UserNotifications
+import FirebaseFirestore
 
 @MainActor @Observable
 final class ChefStore {
@@ -23,6 +24,30 @@ final class ChefStore {
     private var stepStartConfirmations: [String: VoiceConfirmation] = [:]
     private let storage = KitchenStorage()
     private var accountID: String?
+    let remoteCatalog = FirestoreCatalog()
+    private(set) var recipeCards: [RecipeSummary] = []
+    private(set) var recipeSets: [RecipeSet] = []
+    private(set) var classifications: [RecipeClassification] = []
+    private(set) var catalogAdmin = false
+    private(set) var catalogLoading = false
+    private(set) var catalogOffline = false
+    var catalogNotice: String?
+    var previewDrafts = false
+    var selectedSetID: String?
+    private(set) var selectedRecipe: Recipe?
+    private(set) var detailLoading = false
+    var detailError: String?
+    private(set) var draftRevision: String?
+    private(set) var hasMoreRecipes = false
+    private(set) var hasMoreSets = false
+    private var recipeCursor: DocumentSnapshot?
+    private var setCursor: DocumentSnapshot?
+    private var savedOffset = 0
+    private var catalogGeneration = UUID()
+    private var queryGeneration = UUID()
+    private var detailGeneration = UUID()
+    private var voiceSearchResults: [RecipeSummary] = []
+
 
     var session: CookingSession? { archive.session }
     var preferences: ChefPreferences { archive.preferences }
@@ -34,6 +59,8 @@ final class ChefStore {
             catalog = try RecipeCatalog.bundled()
             archive = try storage.load(accountID: accountID, catalog: catalog!)
             archive.session?.guidancePaused = true
+            recipeCards = recipes.map(RecipeSummary.init)
+            if let library = archive.session?.ingredientLibrary { mergeLibrary(library) }
             if let session { chefMessage = session.resumeMessage(at: Date()) }
         } catch {
             canPersist = false
@@ -41,7 +68,7 @@ final class ChefStore {
         }
         voice.onCommand = { [weak self] text in self?.handle(text) }
         voice.context = { [weak self] in self?.voiceContext() ?? [:] }
-        voice.onTool = { [weak self] id, name, arguments in self?.performVoiceTool(id: id, name: name, arguments: arguments) ?? "{}" }
+        voice.onTool = { [weak self] id, name, arguments in await self?.performVoiceTool(id: id, name: name, arguments: arguments) ?? "{}" }
         voice.onAssistantText = { [weak self] text in self?.chefMessage = text }
         voice.onReady = { [weak self] in
             guard let self, self.foreground else { return }
@@ -68,6 +95,11 @@ final class ChefStore {
         voice.stop(); showingVoice = false; selectedRecipeID = nil
         voiceToolResults = [:]; voiceProposal = nil; ratioConfirmation = nil; stepStartConfirmations = [:]
         accountID = uid
+        catalogGeneration = UUID(); queryGeneration = UUID(); detailGeneration = UUID()
+        catalogAdmin = false; previewDrafts = false; selectedRecipe = nil; draftRevision = nil
+        selectedSetID = nil; recipeCards = []; recipeSets = []; voiceSearchResults = []
+        catalogLoading = false; detailLoading = false; catalogNotice = nil; catalogOffline = false
+        catalog = try? RecipeCatalog.bundled()
         archive = AppArchive()
         chefMessage = "What sounds good today? Let's make something together."
         canPersist = false; error = nil; notificationNotice = nil
@@ -78,7 +110,9 @@ final class ChefStore {
             canPersist = true
             if let session { chefMessage = session.resumeMessage(at: Date()) }
         } catch { self.error = "This account's saved kitchen could not be loaded. It has been preserved. \(error.localizedDescription)" }
+        if let library = archive.session?.ingredientLibrary { mergeLibrary(library) }
         syncNotifications()
+        Task { await loadLibrary() }
     }
 
     func eraseAccountKitchen(_ uid: String) throws { try storage.delete(accountID: uid) }
@@ -138,6 +172,7 @@ final class ChefStore {
         guard session == nil else { error = "Finish or end your current recipe before starting another."; return }
         if commit({ next in
             next.session = try CookingSession(recipe: recipe, servings: servings)
+            next.session?.ingredientLibrary = libraryForRecipe(recipe)
             if next.preferences.analyticsEnabled { next.usage.append(UsageRecord(name: "recipe_selected", recipeID: recipe.id)) }
         }) {
             showingVoice = false
@@ -214,10 +249,11 @@ final class ChefStore {
         }
         // Recent events are sufficient; no transcript history or analytics are sent.
         var snapshot = session
+        snapshot?.ingredientLibrary = nil
         if let events = snapshot?.events { snapshot?.events = Array(events.suffix(8)) }
         return ["now": ISO8601DateFormatter().string(from: Date()), "session": snapshot.map(object) ?? NSNull(),
                 "sessionID": session?.id.uuidString ?? "none", "revision": session?.revision ?? 0,
-                "catalog": object(recipes), "preferences": object(preferences),
+                "catalog": object(Array((voiceSearchResults.isEmpty ? recipeCards : voiceSearchResults).prefix(12))), "preferences": object(preferences),
                 "restrictions": Dictionary(uniqueKeysWithValues: recipes.map { ($0.id, restriction(for: snapshot?.recipe.id == $0.id ? snapshot!.recipe : $0) ?? "") }),
                 "ingredientReviews": (snapshot?.recipe.ingredients ?? []).map { ingredient -> [String: Any] in
                     let review = catalog?.review(foodID: ingredient.foodID, preferences: preferences)
@@ -228,7 +264,7 @@ final class ChefStore {
                 "manualPreparationRequired": session.map { !$0.ready } ?? false]
     }
 
-    private func performVoiceTool(id: String, name: String, arguments: String) -> String {
+    private func performVoiceTool(id: String, name: String, arguments: String) async -> String {
         if let cached = voiceToolResults[id] { return cached }
         var result: [String: Any]
         handlingVoiceTool = true
@@ -244,8 +280,21 @@ final class ChefStore {
             var detail = "The cooking state below is current."
             switch request.operation {
             case .state: break
+            case .find_recipes:
+                let generation = catalogGeneration, connection = voice.connectionID
+                let term = try request.requiredTarget()
+                let cards: [RecipeSummary]
+                if catalogOffline { cards = try RecipeCatalog.bundled().recipes.filter { ($0.title + " " + $0.tags.joined(separator: " ")).localizedCaseInsensitiveContains(term) }.map(RecipeSummary.init) }
+                else { cards = try await remoteCatalog.cards(search: term).0 }
+                guard generation == catalogGeneration, connection == voice.connectionID else { throw CancellationError() }
+                voiceSearchResults = cards
+                detail = "These are matching recipe cards. Ask for servings before selecting. Ingredients and instructions load on selection."
             case .select_recipe:
-                guard session == nil, let recipe = recipes.first(where: { $0.id == request.target }), let value = request.value,
+                let generation = catalogGeneration, connection = voice.connectionID
+                let recipe = try await loadRecipe(try request.requiredTarget(), draft: false)
+                guard generation == catalogGeneration, connection == voice.connectionID else { throw CancellationError() }
+                try request.validate(session: session)
+                guard session == nil, let value = request.value,
                       value.rounded() == value, value > 0, value <= Double(recipe.maximumServings) else { throw CookingError.invalid("Choose an available recipe and supported serving count.") }
                 choose(recipe, servings: Int(value))
                 guard session != nil else { throw CookingError.invalid(error ?? "Could not select this recipe.") }
@@ -318,7 +367,7 @@ final class ChefStore {
         case .resume: if session != nil { resume() }
         case .mute: voice.stop(); chefMessage = "Microphone off. Your timers will keep running."
         case .recipe(let id):
-            if session == nil { selectedRecipeID = id; say("\(recipes.first { $0.id == id }?.title ?? id). Open the recipe below and choose your servings to get started.") }
+            if session == nil { openRecipe(id); say("\(recipeCards.first { $0.id == id }?.title ?? id). Open the recipe below and choose your servings to get started.") }
             else { say("You're already cooking \(session!.recipe.title). Finish or end this session before changing recipes.") }
         case .quieter, .detailed:
             var prefs = preferences
@@ -377,5 +426,141 @@ final class ChefStore {
                 }
             } catch { self?.notificationNotice = "Could not schedule a timer alert: \(error.localizedDescription)" }
         }
+    }
+}
+
+extension ChefStore {
+    func loadLibrary() async {
+        let generation = catalogGeneration, initialQuery = queryGeneration
+        do {
+            async let admin = remoteCatalog.isAdmin()
+            async let sets = remoteCatalog.sets()
+            async let facets = remoteCatalog.classifications()
+            async let categories = remoteCatalog.categories()
+            let (access, packs, labels, groups) = try await (admin, sets, facets, categories)
+            guard generation == catalogGeneration else { return }
+            catalogAdmin = access; recipeSets = packs.0; setCursor = packs.1; hasMoreSets = packs.1 != nil
+            classifications = labels; catalog?.categories = groups
+            if !(preferences.dislikedFoodIDs ?? []).isEmpty {
+                let library = try await remoteCatalog.ingredientLibrary((preferences.dislikedFoodIDs ?? []))
+                guard generation == catalogGeneration else { return }
+                mergeLibrary(library)
+            }
+        } catch {
+            guard generation == catalogGeneration else { return }
+            catalogNotice = "Could not refresh the recipe library. Pull down to retry."
+        }
+        guard generation == catalogGeneration, initialQuery == queryGeneration else { return }
+        await loadCards()
+    }
+
+    func loadCards(search: String = "", classification: String? = nil, more: Bool = false, saved: Bool = false) async {
+        if more && (catalogLoading || !hasMoreRecipes) { return }
+        let request = UUID(); queryGeneration = request
+        let generation = catalogGeneration
+        catalogLoading = true
+        if !more { recipeCards = []; recipeCursor = nil; savedOffset = 0; hasMoreRecipes = false }
+        defer { if queryGeneration == request { catalogLoading = false } }
+        do {
+            let cards: [RecipeSummary]
+            var cursor: DocumentSnapshot?
+            let savedIDs = Array(archive.savedRecipes.sorted().dropFirst(savedOffset).prefix(12))
+            if saved { cards = try await remoteCatalog.savedCards(savedIDs) }
+            else {
+                let result = try await remoteCatalog.cards(search: search, classification: classification, setID: selectedSetID,
+                                                          drafts: previewDrafts && catalogAdmin, after: more ? recipeCursor : nil)
+                cards = result.0; cursor = result.1
+            }
+            guard generation == catalogGeneration, request == queryGeneration, !Task.isCancelled else { return }
+            recipeCards += saved ? cards.filter { (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) && (classification == nil || $0.classificationIDs.contains(classification!)) } : cards
+            savedOffset += savedIDs.count
+            recipeCursor = cursor; hasMoreRecipes = saved ? savedOffset < archive.savedRecipes.count : cursor != nil
+            catalogOffline = false; catalogNotice = nil
+            voiceSearchResults = []; voice.updateContext()
+        } catch {
+            guard generation == catalogGeneration, request == queryGeneration, !Task.isCancelled else { return }
+            // Only connection failures may use the known, free bundled starter catalog.
+            let code = (error as NSError).code
+            if !more && !previewDrafts && [FirestoreErrorCode.unavailable.rawValue, FirestoreErrorCode.deadlineExceeded.rawValue].contains(code),
+               let bundle = try? RecipeCatalog.bundled() {
+                recipeCards = bundle.recipes.filter { recipe in
+                    (search.isEmpty || (recipe.title + " " + recipe.tags.joined(separator: " ")).localizedCaseInsensitiveContains(search)) &&
+                    (classification == nil || recipe.tags.map { $0.lowercased() }.contains(classification!)) &&
+                    (selectedSetID == nil || selectedSetID == recipe.recipeSetID)
+                }.map(RecipeSummary.init)
+                catalogOffline = true
+                catalogNotice = "Offline starter recipes · reconnect to refresh the full library."
+            } else { catalogNotice = "Recipes could not load. Pull down to retry." }
+        }
+    }
+
+    func moreSets() async {
+        guard let cursor = setCursor else { return }
+        let generation = catalogGeneration
+        do {
+            let result = try await remoteCatalog.sets(after: cursor)
+            guard generation == catalogGeneration else { return }
+            for item in result.0 where !recipeSets.contains(where: { $0.id == item.id }) { recipeSets.append(item) }
+            setCursor = result.1; hasMoreSets = result.1 != nil
+        } catch { if generation == catalogGeneration { catalogNotice = "Recipe sets could not load. Please retry." } }
+    }
+
+    func mergeLibrary(_ library: IngredientLibrary) {
+        var foods = Dictionary(uniqueKeysWithValues: (catalog?.foods ?? []).map { ($0.id, $0) })
+        for food in library.foods { foods[food.id] = food }
+        catalog?.foods = Array(foods.values); catalog?.categories = library.categories
+    }
+
+    private func libraryForRecipe(_ recipe: Recipe) -> IngredientLibrary? {
+        guard let catalog else { return nil }
+        var ids = Set(recipe.ingredients.flatMap { [$0.foodID] + ($0.alternatives ?? []).map(\.foodID) })
+        var pending = Array(ids)
+        while let id = pending.popLast() {
+            for child in catalog.food(id)?.constituents ?? [] where ids.insert(child).inserted { pending.append(child) }
+        }
+        return IngredientLibrary(schemaVersion: 1, categories: catalog.categories, foods: catalog.foods.filter { ids.contains($0.id) })
+    }
+
+    private func loadRecipe(_ id: String, draft: Bool) async throws -> Recipe {
+        let generation = catalogGeneration
+        if catalogOffline && !draft, let bundle = try? RecipeCatalog.bundled(), let recipe = bundle.recipes.first(where: { $0.id == id }) {
+            mergeLibrary(IngredientLibrary(schemaVersion: 1, categories: bundle.categories, foods: bundle.foods))
+            return recipe
+        }
+        let (recipe, library, revision) = try await remoteCatalog.recipe(id, draft: draft)
+        guard generation == catalogGeneration, !Task.isCancelled else { throw CancellationError() }
+        mergeLibrary(library)
+        catalog?.recipes = [recipe]
+        draftRevision = draft ? revision : nil
+        return recipe
+    }
+
+    func openRecipe(_ id: String) {
+        selectedRecipeID = id; selectedRecipe = nil; detailError = nil; draftRevision = nil
+        let request = UUID(); detailGeneration = request
+        let draft = previewDrafts && catalogAdmin
+        detailLoading = true
+        Task {
+            defer { if detailGeneration == request { detailLoading = false } }
+            do {
+                let recipe = try await loadRecipe(id, draft: draft)
+                guard detailGeneration == request, selectedRecipeID == id else { return }
+                selectedRecipe = recipe
+            } catch {
+                guard detailGeneration == request else { return }
+                detailError = "This recipe could not be opened. Check your connection and access to its recipe set."
+            }
+        }
+    }
+
+    func publishSelectedDraft() async {
+        guard let recipe = selectedRecipe, let revision = draftRevision, catalogAdmin else { return }
+        let generation = catalogGeneration
+        do {
+            try await remoteCatalog.publish(recipe.id, draftRevision: revision)
+            guard generation == catalogGeneration else { return }
+            selectedRecipeID = nil; selectedRecipe = nil; draftRevision = nil
+            await loadCards()
+        } catch { guard generation == catalogGeneration else { return }; self.error = error.localizedDescription }
     }
 }

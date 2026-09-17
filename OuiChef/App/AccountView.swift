@@ -27,7 +27,7 @@ struct AccountView: View {
                         Text("The method you choose will be linked to this account, including any email or phone number it shares. Your existing sign-in methods will keep working.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        Text("The free recipes from Anonymous Chef are yours to explore, with or without an account.")
+                        Text("The free recipes from Chef Margarita are yours to explore, with or without an account.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let method {

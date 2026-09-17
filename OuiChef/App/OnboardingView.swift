@@ -49,8 +49,8 @@ struct OnboardingView: View {
             .onChange(of: store.preferences) { _, value in preferences = value }
             .sheet(isPresented: $showAccount) { AccountView() }
             .sheet(isPresented: $showIngredients) {
-                if let catalog = store.catalog {
-                    IngredientPickerView(catalog: catalog, selection: Binding(get: { preferences.dislikedFoodIDs ?? [] }, set: { preferences.dislikedFoodIDs = $0 }))
+                if store.catalog != nil {
+                    IngredientPickerView(store: store, selection: Binding(get: { preferences.dislikedFoodIDs ?? [] }, set: { preferences.dislikedFoodIDs = $0 }))
                 }
             }
     }

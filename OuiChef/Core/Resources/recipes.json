@@ -300,7 +300,10 @@
           "coachingCues": [],
           "checkAfterSeconds": 30
         }
-      ]
+      ],
+      "chefID": "chef_margarita",
+      "chefName": "Chef Margarita",
+      "recipeSetID": "kitchen_essentials"
     },
     {
       "id": "bread",
@@ -584,7 +587,10 @@
           "recheckSeconds": 600,
           "coachingCues": []
         }
-      ]
+      ],
+      "chefID": "chef_margarita",
+      "chefName": "Chef Margarita",
+      "recipeSetID": "kitchen_essentials"
     },
     {
       "id": "margarita",
@@ -741,7 +747,10 @@
           "coachingCues": [],
           "checkAfterSeconds": 30
         }
-      ]
+      ],
+      "chefID": "chef_margarita",
+      "chefName": "Chef Margarita",
+      "recipeSetID": "kitchen_essentials"
     }
   ]
 }

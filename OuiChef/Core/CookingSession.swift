@@ -33,6 +33,7 @@ struct CookingSession: Codable, Identifiable {
     var revision = 0
     var confirmedIngredients = Set<String>()
     var confirmedTools = Set<String>()
+    var ingredientLibrary: IngredientLibrary?
     var labelsChecked = false
     var preparationCompletedAt: Date?
     var started = Set<String>()

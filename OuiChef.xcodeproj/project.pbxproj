@@ -9,6 +9,8 @@
         D00000000000000000000003 = { isa = XCSwiftPackageProductDependency; package = D00000000000000000000001; productName = FirebaseCore; };
         D00000000000000000000004 = { isa = XCSwiftPackageProductDependency; package = D00000000000000000000001; productName = FirebaseAuth; };
         D00000000000000000000005 = { isa = XCSwiftPackageProductDependency; package = D00000000000000000000002; productName = GoogleSignIn; };
+        D00000000000000000000009 = { isa = XCSwiftPackageProductDependency; package = D00000000000000000000001; productName = FirebaseFirestore; };
+        D00000000000000000000010 = { isa = PBXBuildFile; productRef = D00000000000000000000009; };
         D00000000000000000000006 = { isa = PBXBuildFile; productRef = D00000000000000000000003; };
         D00000000000000000000007 = { isa = PBXBuildFile; productRef = D00000000000000000000004; };
         D00000000000000000000008 = { isa = PBXBuildFile; productRef = D00000000000000000000005; };
@@ -37,7 +39,7 @@
             dependencies = ();
             fileSystemSynchronizedGroups = (A00000000000000000000005);
             name = OuiChef;
-            packageProductDependencies = (D00000000000000000000003, D00000000000000000000004, D00000000000000000000005);
+            packageProductDependencies = (D00000000000000000000003, D00000000000000000000004, D00000000000000000000005, D00000000000000000000009);
             productName = OuiChef;
             productReference = A00000000000000000000006;
             productType = "com.apple.product-type.application";
@@ -49,7 +51,7 @@
         A00000000000000000000005 = { isa = PBXFileSystemSynchronizedRootGroup; path = OuiChef; sourceTree = "<group>"; };
         A00000000000000000000006 = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OuiChef.app; sourceTree = BUILT_PRODUCTS_DIR; };
         A00000000000000000000007 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-        A00000000000000000000008 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D00000000000000000000006, D00000000000000000000007, D00000000000000000000008); runOnlyForDeploymentPostprocessing = 0; };
+        A00000000000000000000008 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D00000000000000000000006, D00000000000000000000007, D00000000000000000000008, D00000000000000000000010); runOnlyForDeploymentPostprocessing = 0; };
         A00000000000000000000009 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (C00000000000000000000002); runOnlyForDeploymentPostprocessing = 0; };
         A00000000000000000000010 = { isa = XCConfigurationList; buildConfigurations = (A00000000000000000000012, A00000000000000000000013); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
         A00000000000000000000011 = { isa = XCConfigurationList; buildConfigurations = (A00000000000000000000014, A00000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
