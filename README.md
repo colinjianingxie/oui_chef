@@ -76,3 +76,5 @@ One cooking session on one iPhone is supported. Ratio changes after mixing, live
 The complete product scope and delivery sequence are in [the MVP plan](docs/MVP_PLAN.md).
 
 Catalog update validation: 18 Swift core tests, 12 backend tests including real Firestore emulator access rules, and the iPhone 14 / iOS 18.4 cloud-catalog cooking flow passed. Live recipe/set queries and ingredient search passed after index deployment. No paid AI calls were made for this update.
+
+The Firestore catalog/admin update is uploaded as TestFlight **1.0 (4)** and was processing when accepted. See [release details and SDK symbol warnings](docs/TESTFLIGHT.md). The source commit is `1bff9644814e895c69ea7655005691fa8a6bd8ff`.

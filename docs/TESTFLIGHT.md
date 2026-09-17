@@ -2,7 +2,23 @@
 
 App Store Connect: **Oui Chef AI** (`6812917370`) · Bundle ID: `com.xie.ouichef` · Team: `84KXUNPGCM`.
 
-## Current release: 1.0 (3)
+## Current release: 1.0 (4)
+
+Apple accepted the Firestore catalog/admin build on **September 17, 2026 at 03:08:27 UTC** (September 16 at 11:08:27 p.m. Eastern). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; the last observed upload state was **PROCESSING**. Check availability in [App Store Connect → TestFlight](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `1bff9644814e895c69ea7655005691fa8a6bd8ff`. Upload ID: `eec90ca2-b2b3-43df-a668-c3423eb876e7`. Receipt: `.build/testflight/OuiChef-1.0-4-upload-receipt.json`.
+
+Archive: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-16/OuiChef-1.0-firestore-2310.xcarchive`. Oui Chef’s dSYM is retained. Xcode assigned uploaded build **4**; source/archive version remains **1.0 (2)**. Signature verification passed; the archive contains 30 privacy manifests.
+
+This build adds paginated Firestore recipe/set cards, on-demand graph and ingredient loading, six-item ingredient pages, shared classifications, chef/set ownership, price metadata, private drafts, and authenticated draft publication. Verified sign-in with either configured catalog-admin email enables draft previews. Starter recipes belong to Chef Margarita’s free Kitchen Essentials set. StoreKit sales remain disabled. The corresponding backend is `oui-chef-voice-00007-lcd`, with existing voice budget/concurrency settings retained.
+
+Validation: 18 Swift core tests, 12 backend tests including Firestore emulator access rules, and the iPhone 14 / iOS 18.4 cooking UI flow passed. Live published recipe/set queries, ingredient search, denied private reads, service health, and unauthenticated publication rejection passed. No paid AI calls were made.
+
+**Symbol warnings:** Xcode reported missing dSYMs for FirebaseFirestoreInternal, absl, grpc, grpcpp and openssl_grpc. The installed Firebase binary artifacts did not contain matching dSYM files. Upload succeeded; app symbols are preserved, while crash frames inside those SDK binaries may lack source-level detail. Do not generate placeholder symbols or re-upload this accepted build to hide the warnings.
+
+No tester groups, beta review, or App Store release submissions were changed. This build was not installed directly on Colin’s phone. Physical-device voice and real Google/SMS sign-in still need device acceptance testing; recipe content needs kitchen review.
+
+## Previous release: 1.0 (3)
 
 Apple accepted the ingredient catalog/preparation update on **September 17, 2026 at 02:10:13 UTC** (September 16 at 10:10:13 p.m. Eastern). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's upload record reported **PROCESSING**, with no errors or warnings. Check its current availability in [App Store Connect → TestFlight](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
 
@@ -28,7 +44,7 @@ xcodebuild -exportArchive \
 
 No private API key is included in the repository. Apple processes uploads before they become available in TestFlight; uploading does not publish an App Store release. The privacy manifest declares app-local UserDefaults access; App Store privacy answers still need to cover Firebase authentication, voice processing, and server usage accounting.
 
-## Validation
+## Build 3 validation
 
 16 Swift core tests, 11 backend tests with a fake provider, and the iPhone 14 / iOS 18.4 cooking UI flow passed. Release archiving and code-signature verification passed, including the bundled ingredient catalog and app dSYM. The deployed backend passed health, missing-auth rejection, guest sign-in messaging, and three independent signed-in connections across two temporary accounts. Temporary accounts were removed; this release validation made no paid xAI calls.
 

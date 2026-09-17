@@ -75,30 +75,18 @@ These are generic ingredient descriptions, not verified branded-product records.
 
 Supply transparent square PNGs, preferably 512 × 512, named by `spriteAsset`, for example `ingredient_garlic.png`. Add them to matching image sets in `OuiChef/Assets.xcassets`. The app uses an existing sprite when available and a category icon otherwise. Artwork is decorative; names and quantities remain accessible text. A sprite change does not alter ingredient identity.
 
-## Growth plan
+## Catalog delivery and future work
 
-### Next: reviewed catalog maintenance
+Firestore is now the editorial source for shared ingredients and categories. The app queries six ingredients per page and fetches a recipe’s referenced foods and constituents when opening it. Active sessions retain a validated ingredient snapshot for offline cooking. See [Firestore operations](FIRESTORE_CATALOG.md) for the seed/import commands, publication rules, ownership, and pricing.
 
-Keep the bundled JSON as the offline seed while the library is small. Add foods and categories through reviewed changes and run the catalog tests. Retain aliases for ordinary search terms; never recycle an ID. Extend metadata with units, product provenance, localized names, review timestamps, and cross-contact status only when there is reliable data and a consuming feature.
+Structured recipe imports already validate with the shared Swift engine and stage a private draft. Verified catalog administrators can preview and publish it from the app. Unknown food IDs must be resolved before import; chef wording and quantities remain recipe-specific. Published versions stay immutable through supported operations.
 
-### When chef JSON imports arrive
-
-Validate imports on the server before publication. Resolve every food reference to a canonical ID; present unknown names as proposals for review rather than silently making duplicate foods. Keep chef wording, quantities, preparation transformations, and approved substitutions in the recipe. Save an immutable recipe version for each published pack; an active cooking session keeps its selected recipe snapshot. Shared catalog maintenance stays separate from recipe-pack subscription ownership.
-
-### When updates need to ship without an app release
-
-Use Firestore `ingredients/{foodID}` and `ingredientCategories/{categoryID}` as the editorial source, plus a versioned catalog manifest. Export approved records into a downloadable snapshot in Cloud Storage. The app fetches the manifest, validates a new snapshot, and atomically replaces its local cache; on failure it keeps the previous catalog or bundled seed. This avoids one Firestore read per ingredient on every launch.
-
-Use tombstones and replacement IDs for retired foods, preserving references in old recipe/session records. Safety metadata corrections should trigger review before the next cooking action rather than silently rewriting quantities or progress. Upload editing rights stay server-side; users get published records only. Add indexed search or SQLite when measured catalog size makes local filtering noticeably slow. Images can move to versioned Storage URLs and an image cache when the asset library outgrows the app bundle.
-
-## Deliberately deferred
-
-No catalog admin dashboard, remote sync, chef import pipeline, paid pack system, or automatic AI-generated ingredient metadata is included in this change. Those need real editorial/import workflows. This foundation already gives those workflows stable IDs, reusable classification, explicit substitutions, and a tested preference boundary.
+Still deferred: chef-facing authoring screens, StoreKit subscriptions, a branded-product review workflow, remote sprite delivery, and automatic metadata generation. Keep aliases and stable IDs as the library grows. Add product provenance, localized names, review timestamps and cross-contact status only with reliable data and a consuming feature. Retired ingredient IDs must remain resolvable by older sessions.
 
 ## Validation
 
-- 16 Swift core tests cover recipe graphs, ingredient composition/category validation, dietary and allergy checks through constituents, nonblocking dislikes, supported substitutions, unchanged quantities, re-confirmation, archive compatibility, and bounded taste suggestions.
-- 11 local backend tests pass with a fake provider; no xAI credit was used.
+- 18 Swift core tests cover recipe graphs, ingredient composition/category validation, dietary and allergy checks through constituents, nonblocking dislikes, supported substitutions, unchanged quantities, re-confirmation, archive compatibility, and bounded taste suggestions.
+- 12 local backend tests pass, including Firestore emulator rules and a fake voice provider; no xAI credit was used.
 - The iPhone 14 / iOS 18.4 UI flow exercises preference editing, ingredient search and dislike persistence, pasta substitution/restoration, bulk selection, label gating without tool verification, amount adjustment, cooking, and pause/relaunch.
 
-This change was uploaded as TestFlight 1.0 (3), with Apple processing it at upload completion. The revised backend prompt is deployed as `oui-chef-voice-00006-m6g` and its authentication smoke check passed without xAI calls. See [release details](TESTFLIGHT.md). Direct installation on Colin’s iPhone was not part of this release.
+The original ingredient UI shipped in build 3; the Firestore implementation is uploaded as TestFlight **1.0 (4)**. The matching backend is `oui-chef-voice-00007-lcd`. See [release details and SDK symbol warnings](TESTFLIGHT.md). Direct installation on Colin’s iPhone was not part of this release.
