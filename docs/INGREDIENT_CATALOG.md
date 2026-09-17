@@ -99,4 +99,4 @@ No catalog admin dashboard, remote sync, chef import pipeline, paid pack system,
 - 11 local backend tests pass with a fake provider; no xAI credit was used.
 - The iPhone 14 / iOS 18.4 UI flow exercises preference editing, ingredient search and dislike persistence, pasta substitution/restoration, bulk selection, label gating without tool verification, amount adjustment, cooking, and pause/relaunch.
 
-This change is local source plus simulator validation. It has not been installed on Colin’s iPhone or uploaded to TestFlight. The revised backend prompt is ready for the next deployment.
+This change was uploaded as TestFlight 1.0 (3), with Apple processing it at upload completion. The revised backend prompt is deployed as `oui-chef-voice-00006-m6g` and its authentication smoke check passed without xAI calls. See [release details](TESTFLIGHT.md). Direct installation on Colin’s iPhone was not part of this release.
