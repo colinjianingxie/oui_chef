@@ -20,7 +20,7 @@ final class AccountSession {
     var busy = false
     var error: String?
     var notice: String?
-    var onDeleteLocalAccount: ((String) throws -> Void)?
+    var onDeleteLocalAccount: ((String) async throws -> Void)?
     private var nonce: String?
     private var listener: AuthStateDidChangeListenerHandle?
     private var verificationID: String? {
@@ -162,8 +162,8 @@ final class AccountSession {
                 guard let appleCode else { throw CookingError.invalid("Use Apple to confirm deletion of this account.") }
                 try await Auth.auth().revokeToken(withAuthorizationCode: appleCode)
             }
+            try await onDeleteLocalAccount?(uid)
             try await user.delete()
-            try onDeleteLocalAccount?(uid)
             GIDSignIn.sharedInstance.signOut()
             notice = "Your account and its kitchen on this iPhone were deleted."
         case .signIn:

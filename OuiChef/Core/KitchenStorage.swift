@@ -15,6 +15,21 @@ struct AppArchive: Codable {
     var history: [CookingSession] = []
     var savedRecipes = Set<String>()
     var usage: [UsageRecord] = []
+    var completedDishes: [CompletedDish]?
+    var deletedDishIDs: Set<UUID>?
+    var hiddenDishIDs: Set<UUID>?
+
+    mutating func activate(_ attempt: CookingSession) {
+        guard session?.id != attempt.id else { return }
+        history.removeAll { $0.id == attempt.id }
+        if var previous = session {
+            previous.guidancePaused = true
+            history.removeAll { $0.id == previous.id }
+            history.insert(previous, at: 0)
+            reconcileCompletion(previous)
+        }
+        session = attempt
+    }
 }
 
 struct KitchenStorage {
@@ -46,6 +61,16 @@ struct KitchenStorage {
         try JSONEncoder().encode(archive).write(to: file(accountID: accountID), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
+    func photoURL(_ name: String) -> URL {
+        folder.appendingPathComponent("photos", isDirectory: true).appendingPathComponent(URL(fileURLWithPath: name).lastPathComponent)
+    }
+    func savePhoto(_ data: Data) throws -> String {
+        let name = UUID().uuidString + ".jpg"
+        let url = photoURL(name)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        return name
+    }
     func delete(accountID: String) throws {
         let target = file(accountID: accountID)
         if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }

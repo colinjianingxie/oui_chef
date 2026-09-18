@@ -5,6 +5,7 @@ struct CookingView: View {
     @State private var showEnd = false
     @State private var showVoiceInfo = false
     @State private var command = ""
+    @State private var choosingRecipe = false
 
     var body: some View {
         if let session = store.session {
@@ -30,12 +31,17 @@ struct CookingView: View {
                             VStack(spacing: 18) {
                                 Image(systemName: "checkmark.seal").font(.system(size: 60, weight: .ultraLight)).foregroundStyle(Theme.green)
                                 Text("You made it.").font(Theme.serif(33))
-                                Text("Take a moment. Enjoy what you've made.").foregroundStyle(.secondary)
+                                Text("Would you like a picture for your cooking history?").foregroundStyle(.secondary)
+                                Button("Take photo") { store.photoAttemptID = session.id }.buttonStyle(FilledButton())
+                                Button("Actually, I'm not finished") {
+                                    if let last = session.recipe.nodes.last(where: { !session.hasStartedDescendant(of: $0.id) }) { _ = store.updateSession { try $0.reopen(last.id, at: Date()) } }
+                                }.frame(minHeight: 44)
                                 Button("Save this cooking session") { store.endSession() }.buttonStyle(FilledButton())
                             }.frame(maxWidth: .infinity).padding(.vertical, 35)
                         } else {
                             ProgressView(value: Double(session.completed.count), total: Double(session.recipe.nodes.count)).tint(Theme.green)
                             Text("\(session.completed.count) of \(session.recipe.nodes.count) tasks completed").font(.caption).foregroundStyle(.secondary)
+                            RecoveryView(store: store)
                             if session.guidancePaused {
                                 Label("Guidance paused · timers keep running", systemImage: "pause.circle").font(.subheadline).kitchenCard()
                                 Button("Resume cooking") { store.resume() }.buttonStyle(FilledButton())
@@ -49,17 +55,42 @@ struct CookingView: View {
                             if !session.completed.isEmpty {
                                 DisclosureGroup("Already done · \(session.completed.count)") {
                                     ForEach(session.recipe.nodes.filter { session.completed.contains($0.id) }) { node in
-                                        Label(node.title, systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(Theme.green).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
+                                        HStack {
+                                            Label(node.title, systemImage: "checkmark.circle.fill").font(.subheadline)
+                                            Spacer()
+                                            if !session.hasStartedDescendant(of: node.id) {
+                                                Button("Not finished") { _ = store.updateSession { try $0.reopen(node.id, at: Date()) } }
+                                            }
+                                        }.foregroundStyle(Theme.green).frame(minHeight: 44).padding(.vertical, 6)
                                     }
                                 }.kitchenCard()
                             }
                         }
+                        ForEach(store.archive.history.filter { !$0.finished && !$0.timers.isEmpty }) { previous in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label("Still running: \(previous.recipe.title)", systemImage: "timer")
+                                ForEach(previous.timers) { timer in
+                                    Text("\(previous.recipe.node(timer.nodeID)?.title ?? timer.nodeID) · check \(timer.deadline, style: .relative)").font(.caption)
+                                }
+                                Button("Return to \(previous.recipe.title)") { store.resumeAttempt(previous.id) }
+                                Button("I've stopped this cooking — dismiss timers") { store.dismissParkedTimers(previous.id) }
+                            }.kitchenCard()
+                        }
+                        Button("Change recipe") { choosingRecipe = true; store.previewDrafts = false; Task { await store.loadCards() } }.frame(minHeight: 44)
                         voiceCard
                     }.padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 35)
                 }
                 }
             }
             .id(session.id)
+            .sheet(isPresented: $choosingRecipe) {
+                NavigationStack {
+                    List(store.recipeCards) { card in
+                        Button("Switch to \(card.title)") { Task { await store.switchRecipe(card.id, servings: card.baseServings); choosingRecipe = false } }
+                    }.navigationTitle("Choose a recipe")
+                    .safeAreaInset(edge: .bottom) { Text("Your current progress and timers will be kept. Check the new recipe's ingredients before cooking.").font(.caption).padding() }
+                }
+            }
             .confirmationDialog("End this cooking session?", isPresented: $showEnd, titleVisibility: .visible) {
                 Button("End session and cancel its reminders", role: .destructive) { store.endSession() }
                 Button("Keep cooking", role: .cancel) { }

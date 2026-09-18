@@ -21,7 +21,7 @@ struct AccountView: View {
                     Text(intent == .deleteAccount ? "Confirm it’s you." : intent == .link ? "One kitchen.\nMore ways in." : "Your kitchen.\nYour way.")
                         .font(Theme.serif(36)).accessibilityAddTraits(.isHeader)
                     if intent == .deleteAccount {
-                        Text("Sign in again to delete this account and its cooking data on this iPhone. Voice usage and security records are retained in this development preview.")
+                        Text("Sign in again to delete this account, its private completed dishes and photos, and its cooking data on this iPhone. Voice usage and security records are retained in this development preview.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else if intent == .link {
                         Text("The method you choose will be linked to this account, including any email or phone number it shares. Your existing sign-in methods will keep working.")
@@ -105,7 +105,7 @@ struct AccountView: View {
                 Button("Send verification email") { Task { await account.verifyEmail() } }.disabled(account.busy)
             }
             Button("Add a sign-in method") { intent = .link }.disabled(account.busy)
-            Text("Preferences and cooking history are saved separately for each account on this iPhone. Cloud sync is not available yet.")
+            Text("Completed dishes and photos sync privately to your account. Preferences and active cooking progress are saved separately on this iPhone.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Button("Sign out") { Task { await account.signOut() } }.disabled(account.busy)

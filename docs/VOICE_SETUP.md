@@ -95,3 +95,8 @@ The shared prompt and tool description now match ingredient-only verification. V
 ## Firestore catalog deployment
 
 Revision `oui-chef-voice-00007-lcd` serves 100% of traffic. Cloud Build: `2835f1cc-ee44-4ab0-bf9a-de2ed9ff1b66`; image digest: `sha256:d50150030164ec3e5dbf13f4e07988d2d141d02fc74b600913f8cdb65202c00d`. Adds authenticated publication of validated drafts and the `find_recipes` voice operation. Voice receives at most 12 recipe summaries and the active cooking graph. The current account, session and connection are checked after asynchronous recipe loading. Health, unauthenticated publication rejection, live Firestore queries, and 12 backend tests passed without paid AI calls. Existing voice budget and concurrency settings are unchanged.
+
+
+## Adaptive cooking deployment — September 17
+
+Revision `oui-chef-voice-00008-vqh` serves 100% of traffic. Cloud Build `b3cf7f85-19c0-4a6b-b739-a55f507f55d4`, image `sha256:ede1a8f77ddd67edcf1d892119b23eb8ec91244ef1ec71984ca56dbd7b18bb8b`. New clients advertise `adaptiveCooking`; only those clients receive quantity-report, recovery, rewind, recipe-resume and photo tools. Existing clients retain their original tool set. Authentication, concurrency and shared spending controls are unchanged. The deployed authentication/concurrency smoke check passed without any xAI calls; temporary accounts were removed. See [adaptive cooking](ADAPTIVE_COOKING.md) for native state and photo behavior.

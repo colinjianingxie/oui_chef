@@ -45,10 +45,22 @@ struct CookingSession: Codable, Identifiable {
     var guidancePaused = false
     var pendingQuestionNodeID: String?
     var createdAt = Date()
+    var sourceRecipe: Recipe?
+    var reportedAmounts: [String: Double]?
+    var referenceAmounts: [String: Double]?
+    var pendingRecovery: RecoveryPlan?
+    var recoveryIngredientsConfirmed: Set<String>?
+    var adjustments: [String]?
+    var correctionUndo: CookingUndo?
+    var completedTimers: [String: CookingTimer]?
+    var completedAt: Date?
+    var photoInvitationOffered: Bool?
+
 
     init(recipe: Recipe, servings: Int? = nil) throws {
         let count = servings ?? recipe.baseServings
         guard count > 0 && count <= recipe.maximumServings else { throw CookingError.invalid("Choose a supported serving size.") }
+        self.sourceRecipe = recipe
         self.recipe = recipe
         self.servings = count
         for index in self.recipe.ingredients.indices where self.recipe.ingredients[index].scales {
@@ -62,7 +74,7 @@ struct CookingSession: Codable, Identifiable {
     }
     // Existing sessions that already started cooking keep their progress on upgrade.
     var ready: Bool { checksComplete && (preparationCompletedAt != nil || !started.isEmpty) }
-    var finished: Bool { completed.count == recipe.nodes.count }
+    var finished: Bool { pendingRecovery == nil && completed.count == recipe.nodes.count }
     var activeNodes: [CookingNode] { recipe.nodes.filter { started.contains($0.id) && !completed.contains($0.id) } }
     var eligibleNodes: [CookingNode] {
         recipe.nodes.filter { !started.contains($0.id) && Set($0.dependsOn).isSubset(of: completed) }
@@ -108,6 +120,7 @@ struct CookingSession: Codable, Identifiable {
         record("preparation_completed", at: date)
     }
     mutating func begin(_ id: String, at date: Date) throws {
+        guard pendingRecovery == nil else { throw CookingError.invalid("Finish or cancel the recovery action first.") }
         guard ready else { throw CookingError.invalid("Let's check the ingredients and product labels first.") }
         guard !guidancePaused else { throw CookingError.invalid("Resume guidance before starting a task.") }
         guard !started.contains(id) else { return }
@@ -116,6 +129,7 @@ struct CookingSession: Codable, Identifiable {
         guard occupiedTools.isDisjoint(with: node.tools) else { throw CookingError.invalid("One of this task's tools is still in use. Finish that task first.") }
         let usedInputs = Set(recipe.nodes.filter { started.contains($0.id) }.flatMap(\.inputs))
         guard usedInputs.isDisjoint(with: node.inputs) else { throw CookingError.invalid("An input for this task has already been used.") }
+        correctionUndo = nil
         started.insert(id)
         startedAt[id] = date
         if let duration = node.durationSeconds { timers.append(CookingTimer(nodeID: id, startedAt: date, deadline: date.addingTimeInterval(duration))) }
@@ -124,10 +138,17 @@ struct CookingSession: Codable, Identifiable {
     mutating func finish(_ id: String, confirmed: Bool, at date: Date) throws {
         guard !completed.contains(id) else { return }
         guard !guidancePaused, started.contains(id), confirmed else { throw CookingError.invalid("Start the task and confirm its readiness before continuing.") }
+        guard pendingRecovery == nil else { throw CookingError.invalid("Finish or cancel the recovery action first.") }
+        correctionUndo = nil
+        if let timer = timers.first(where: { $0.nodeID == id }) {
+            if completedTimers == nil { completedTimers = [:] }
+            completedTimers?[id] = timer
+        }
         completed.insert(id)
         timers.removeAll { $0.nodeID == id }
         if pendingQuestionNodeID == id { pendingQuestionNodeID = nil }
         record("node_completed", nodeID: id, at: date)
+        if finished { completedAt = date }
     }
     mutating func recheck(_ id: String, at date: Date) throws {
         guard !guidancePaused, started.contains(id), !completed.contains(id), let node = recipe.node(id) else {
@@ -218,6 +239,7 @@ struct CookingSession: Codable, Identifiable {
         guard proposal.sessionID == id, proposal.revision == revision, let index = recipe.ingredients.firstIndex(where: { $0.id == proposal.ingredientID }), let option = recipe.ratios.first(where: { $0.id == proposal.optionID }), let base = recipe.ingredients.first(where: { $0.id == option.baseIngredientID }) else { throw CookingError.invalid("The recipe changed. Please preview the adjustment again.") }
         let validated = try proposeRatio(proposal.optionID, value: proposal.newAmount / base.amount)
         guard validated.ingredientID == proposal.ingredientID else { throw CookingError.invalid("Invalid adjustment.") }
+        saveCorrectionUndo()
         recipe.ingredients[index].amount = validated.newAmount
         confirmedIngredients.remove(proposal.ingredientID)
         preparationCompletedAt = nil

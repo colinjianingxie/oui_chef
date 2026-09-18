@@ -121,6 +121,9 @@ struct Recipe: Codable, Identifiable {
     var chefID: String?
     var chefName: String?
     var recipeSetID: String?
+    var recoveryOptions: [RecoveryOption]?
+    var totalMinutes: Int?
+    var maximumMinutes: Int?
 
     func node(_ id: String) -> CookingNode? { nodes.first { $0.id == id } }
 }
@@ -169,6 +172,9 @@ struct RecipeCatalog: Codable {
         }
         for food in foods { try visitFood(food.id, path: []) }
         for recipe in recipes {
+            if let minutes = recipe.totalMinutes {
+                try require(minutes > 0 && (recipe.maximumMinutes ?? minutes) >= minutes, "Invalid time estimate.")
+            }
             let ids = Set(recipe.nodes.map(\.id))
             let ingredients = Set(recipe.ingredients.map(\.id))
             try require(!recipe.nodes.isEmpty && ids.count == recipe.nodes.count, "Invalid node IDs.")
@@ -212,6 +218,7 @@ struct RecipeCatalog: Codable {
                     completed.insert(node.id)
                 }
             }
+            try recipe.validateRecoveryOptions()
             for ratio in recipe.ratios {
                 try require(ratio.preference == nil || ["salt", "sweetness", "spice"].contains(ratio.preference!), "Unknown taste preference.")
                 try require(ingredients.contains(ratio.ingredientID) && ingredients.contains(ratio.baseIngredientID), "Unknown ratio ingredient.")

@@ -11,7 +11,7 @@ final class AccountFlowTests: XCTestCase {
             app.buttons["Profile"].tap()
             app.buttons["account-button"].tap()
         } else { welcome.tap() }
-        XCTAssertTrue(app.staticTexts["Apple sign-in is coming soon."].exists)
+        XCTAssertTrue(app.buttons["Continue with email"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Continue with Google"].exists)
         app.buttons["Continue with email"].tap()
         app.buttons["Create account"].firstMatch.tap()
@@ -38,10 +38,9 @@ final class AccountFlowTests: XCTestCase {
         app.secureTextFields.firstMatch.tap()
         for character in "CookingTest123!" { app.secureTextFields.firstMatch.typeText(String(character)) }
         app.buttons["Verify and delete account"].tap()
-        XCTAssertTrue(app.buttons["Continue with email"].waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(app.staticTexts["Your account and its kitchen on this iPhone were deleted."].exists)
+        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), app.debugDescription)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Optional account sign-in"; shot.lifetime = .keepAlways; add(shot)
-        app.buttons["Close"].tap()
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() }
         if app.buttons["Get started"].exists {
             app.buttons["Get started"].tap()
             for _ in 0..<4 { app.buttons["Continue"].tap() }

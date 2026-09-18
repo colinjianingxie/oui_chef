@@ -11,7 +11,7 @@ service cloud.firestore {
     function manages(chefID) { return admin() || owns(chefID); }
     function entitled(setID) {
       let pack = get(/databases/$(database)/documents/recipeSets/$(setID)).data;
-      return pack.status == 'published' && (pack.price.kind == 'free' ||
+      return pack.status == 'published' && (('access' in pack ? pack.access.kind : pack.price.kind) == 'free' ||
         (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)/recipeSetEntitlements/$(setID)).data.expiresAt > request.time));
     }
     match /catalogAdmins/{email} {
@@ -37,7 +37,26 @@ service cloud.firestore {
     match /ingredientCategories/{id} { allow read: if true; }
     match /classifications/{id} { allow read: if true; }
     match /users/{uid}/recipeSetEntitlements/{id} { allow get: if request.auth != null && request.auth.uid == uid; }
-    // Authoring/publication and billing use the trusted backend. No client writes.
+    match /users/{uid}/completedRecipes/{id} {
+      function owner() { return request.auth != null && request.auth.uid == uid; }
+      function validDish() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['id', 'recipeID', 'recipeVersion', 'title', 'chefName', 'servings', 'completedAt', 'adjustments'])
+          && d.keys().hasOnly(['id', 'recipeID', 'recipeVersion', 'title', 'chefName', 'servings', 'completedAt', 'adjustments', 'photoPath', 'photoVersion'])
+          && d.id == id && id.matches('^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$')
+          && d.recipeID is string && d.recipeID.size() <= 100
+          && d.recipeVersion is int && d.recipeVersion > 0
+          && d.title is string && d.title.size() > 0 && d.title.size() <= 200
+          && d.chefName is string && d.chefName.size() <= 200
+          && d.servings is int && d.servings > 0 && d.servings <= 1000
+          && d.completedAt is timestamp && d.adjustments is list && d.adjustments.size() <= 40
+          && (!('photoPath' in d) || d.photoPath == 'users/' + uid + '/completedRecipes/' + id + '/dish.jpg')
+          && (!('photoVersion' in d) || (d.photoVersion is string && d.photoVersion.size() <= 36));
+      }
+      allow read, delete: if owner();
+      allow create, update: if owner() && validDish();
+    }
+    // Catalog publication, entitlements, and voice accounting remain server-owned.
     match /{document=**} { allow read, write: if false; }
   }
 }

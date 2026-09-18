@@ -31,6 +31,11 @@ struct RecipeSetPrice: Codable, Equatable {
     }
 }
 
+struct RecipeSetAccess: Codable {
+    var kind: RecipeSetPrice.Kind
+    var productID: String?
+}
+
 struct RecipeSet: Codable, Identifiable {
     var id: String
     var chefID: String
@@ -38,8 +43,12 @@ struct RecipeSet: Codable, Identifiable {
     var title: String
     var summary: String
     var status: PublicationStatus
-    var classificationIDs: [String]
-    var price: RecipeSetPrice
+    var classificationIDs: [String]? // Legacy wire field, retained while old clients are in use.
+    var tags: [String]?
+    var discoveryTags: [String] { tags ?? classificationIDs ?? [] }
+    var price: RecipeSetPrice?
+    var access: RecipeSetAccess?
+    var accessLabel: String { access.map { $0.kind == .free ? "Free" : "Subscription" } ?? price?.label ?? "Unavailable" }
 }
 
 struct RecipeSummary: Codable, Identifiable {
@@ -48,31 +57,56 @@ struct RecipeSummary: Codable, Identifiable {
     var subtitle: String
     var style: ChefStyle
     var minutes: String
+    var totalMinutes: Int?
+    var maximumMinutes: Int?
+    var timeLabel: String { timeEstimate(totalMinutes, maximumMinutes, fallback: minutes) }
     var chefID: String
     var chefName: String
     var recipeSetID: String
     var status: PublicationStatus
-    var classificationIDs: [String]
+    var classificationIDs: [String]? // Legacy wire field, retained while old clients are in use.
+    var tags: [String]?
+    var discoveryTags: [String] { tags ?? classificationIDs ?? [] }
     var publishedVersion: Int?
     var hasDraft: Bool
     var baseServings: Int
     var maximumServings: Int
 }
 
-struct RecipeClassification: Codable, Identifiable {
+struct CatalogTag: Codable, Identifiable {
     var id: String
     var name: String
-    var kind: String
-    var parentID: String?
-    var appliesTo: [String]
+    static let all: [CatalogTag] = {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        guard let url = bundle.url(forResource: "catalog-tags", withExtension: "json"),
+              let data = try? Data(contentsOf: url), let tags = try? JSONDecoder().decode([CatalogTag].self, from: data) else { return [] }
+        return tags
+    }()
 }
 
 extension RecipeSummary {
     init(_ recipe: Recipe) {
         id = recipe.id; title = recipe.title; subtitle = recipe.subtitle; style = recipe.style
-        minutes = recipe.minutes; baseServings = recipe.baseServings; maximumServings = recipe.maximumServings
+        minutes = recipe.minutes; totalMinutes = recipe.totalMinutes; maximumMinutes = recipe.maximumMinutes; baseServings = recipe.baseServings; maximumServings = recipe.maximumServings
         chefID = recipe.chefID ?? "chef_margarita"; chefName = recipe.chefName ?? "Chef Margarita"
         recipeSetID = recipe.recipeSetID ?? "kitchen_essentials"
-        status = .published; classificationIDs = recipe.tags.map { $0.lowercased() }; publishedVersion = recipe.version; hasDraft = false
+        tags = recipe.tags.map { $0.lowercased() }; status = .published; classificationIDs = tags; publishedVersion = recipe.version; hasDraft = false
     }
+}
+
+func timeEstimate(_ minimum: Int?, _ maximum: Int?, fallback: String) -> String {
+    guard let minimum else { return fallback }
+    if let maximum, maximum > minimum {
+        if minimum % 60 == 0 && maximum % 60 == 0 { return "\(minimum / 60)–\(maximum / 60) hr" }
+        return "\(minimum)–\(maximum) min"
+    }
+    return "\(minimum) min"
+}
+
+extension Recipe {
+    var timeLabel: String { timeEstimate(totalMinutes, maximumMinutes, fallback: minutes) }
 }

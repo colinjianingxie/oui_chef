@@ -2,6 +2,7 @@ import SwiftUI
 import FirebaseCore
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 import GoogleSignIn
 
 @main
@@ -30,9 +31,9 @@ private struct ChefRootView: View {
                     KitchenView(store: store)
                 }
             }
-                .task { await store.loadLibrary() }
+                .task { await store.loadLibrary(); await store.loadDishes(); store.syncDishes() }
                 .onAppear {
-                    account.onDeleteLocalAccount = { [weak store] uid in try store?.eraseAccountKitchen(uid) }
+                    account.onDeleteLocalAccount = { [weak store] uid in try await store?.eraseAccountKitchen(uid) }
                 }
                 .onOpenURL { url in
                     if !Auth.auth().canHandle(url) { _ = GIDSignIn.sharedInstance.handle(url) }
@@ -45,7 +46,7 @@ private struct ChefRootView: View {
                     Button("OK") { store.error = nil }
                 } message: { Text(store.error ?? "") }
                 .onChange(of: phase) { _, phase in
-                    if phase == .active { store.foreground = true }
+                    if phase == .active { store.foreground = true; store.syncDishes() }
                     else if phase == .background { store.background() }
                     UIApplication.shared.isIdleTimerDisabled = phase == .active && store.session != nil && store.preferences.keepScreenAwake
                 }
@@ -64,6 +65,7 @@ final class AuthAppDelegate: NSObject, UIApplicationDelegate {
         if ProcessInfo.processInfo.arguments.contains("--auth-emulator"),
            let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"), let options = FirebaseOptions(contentsOfFile: path) {
             options.projectID = "demo-ouichef"
+            options.storageBucket = "demo-ouichef.appspot.com"
             FirebaseApp.configure(options: options)
         } else { FirebaseApp.configure() }
         #else
@@ -73,6 +75,7 @@ final class AuthAppDelegate: NSObject, UIApplicationDelegate {
         firestoreSettings.cacheSettings = MemoryCacheSettings()
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--auth-emulator") {
+            Storage.storage().useEmulator(withHost: "127.0.0.1", port: 9199)
             Auth.auth().useEmulator(withHost: "127.0.0.1", port: 9099)
             try? Auth.auth().signOut()
             firestoreSettings.host = "127.0.0.1:8085"

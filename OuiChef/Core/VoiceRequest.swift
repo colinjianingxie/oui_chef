@@ -5,6 +5,7 @@ struct VoiceRequest: Codable {
         case state, find_recipes, select_recipe, confirm_ingredient, confirm_tool, confirm_labels
         case start_node, ask_readiness, complete_node, recheck, pause, resume
         case propose_ratio, confirm_ratio, set_guidance, mute
+        case report_amount, reopen_node, undo_correction, propose_recovery, confirm_recovery, complete_recovery, cancel_recovery, take_photo, resume_attempt
     }
     var operation: Operation
     var sessionID: String
@@ -12,6 +13,8 @@ struct VoiceRequest: Codable {
     var target: String?
     var value: Double?
     var confirmed: Bool?
+    var unit: String?
+    var nodeID: String?
 
     func validate(session: CookingSession?) throws {
         if operation == .state || operation == .find_recipes || operation == .mute { return }
@@ -21,7 +24,7 @@ struct VoiceRequest: Codable {
         guard sessionID == (session?.id.uuidString ?? "none"), revision == (session?.revision ?? 0) else {
             throw CookingError.invalid("Cooking state changed. Read the current state and ask again if needed.")
         }
-        if ![.state, .ask_readiness, .propose_ratio].contains(operation), confirmed != true {
+        if ![.state, .ask_readiness, .propose_ratio, .propose_recovery].contains(operation), confirmed != true {
             throw CookingError.invalid("Ask the user to confirm this action first.")
         }
         if let value, !value.isFinite { throw CookingError.invalid("Invalid quantity.") }

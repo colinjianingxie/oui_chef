@@ -1,9 +1,17 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+const tags = JSON.parse(readFileSync(new URL('../OuiChef/Core/Resources/catalog-tags.json', import.meta.url)));
+export function canonicalTags(values) {
+  if (!Array.isArray(values) || values.length > 20 || !values.every(value => typeof value === 'string')) throw new Error('Invalid tags');
+  const result = [...new Set(values.map(value => value.trim().toLowerCase()))];
+  if (result.some(id => !tags.some(tag => tag.id === id))) throw new Error('Unknown tag');
+  return result;
+}
 
 export const catalogProject = 'oui-chef-dev-20260914';
 export const validID = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
-export const draftRevision = draft => createHash('sha256').update(JSON.stringify(canonical([draft.recipe, draft.classificationIDs]))).digest('hex');
+export const draftRevision = draft => createHash('sha256').update(JSON.stringify(canonical([draft.recipe, draft.classificationIDs ?? draft.recipe.tags]))).digest('hex');
 // Prefix tokens keep queries bounded. Multiword prefixes and individual words are supported.
 export function searchTokens(names) {
   return [...new Set(names.flatMap(name => {
@@ -12,8 +20,11 @@ export function searchTokens(names) {
   }))];
 }
 export function cardFor(recipe, classificationIDs, status, hasDraft) {
+  classificationIDs = canonicalTags(classificationIDs ?? recipe.tags);
   const { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID } = recipe;
-  return { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID, classificationIDs,
+  return { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID, classificationIDs, tags: classificationIDs,
+    ...(recipe.totalMinutes == null ? {} : { totalMinutes: recipe.totalMinutes }),
+    ...(recipe.maximumMinutes == null ? {} : { maximumMinutes: recipe.maximumMinutes }),
     status, hasDraft, publishedVersion: status === 'published' ? recipe.version : null,
     searchTokens: searchTokens([title, subtitle, style, ...recipe.tags, ...classificationIDs]) };
 }
@@ -36,12 +47,11 @@ export async function publishRecipe(db, identity, recipeID, revision) {
     if (recipe.id !== recipeID || recipe.chefID !== card.chefID || recipe.recipeSetID !== card.recipeSetID) throw new Error('Recipe ownership cannot change during publication.');
     const setDoc = await tx.get(db.doc(`recipeSets/${recipe.recipeSetID}`));
     if (!setDoc.exists || setDoc.data().chefID !== recipe.chefID || setDoc.data().status !== 'published' || chefDoc.data()?.status !== 'published') throw new Error('Publish the owning chef and recipe set first.');
-    const classifications = await Promise.all(draft.classificationIDs.map(id => tx.get(db.doc(`classifications/${id}`))));
-    if (classifications.some(doc => !doc.data()?.appliesTo?.includes('recipe'))) throw new Error('Unknown recipe classification.');
+    const labels = canonicalTags(draft.classificationIDs ?? recipe.tags);
     const version = Math.max(0, card.publishedVersion ?? 0) + 1;
-    const published = { ...recipe, chefName: chefDoc.data().name, version };
+    const published = { ...recipe, tags: labels, chefName: chefDoc.data().name, version };
     tx.create(ref.collection('versions').doc(String(version)), { recipe: published, published: true, publishedAt: new Date() });
-    tx.set(ref, cardFor(published, draft.classificationIDs, 'published', false));
+    tx.set(ref, cardFor(published, labels, 'published', false));
     return { recipeID, version };
   });
 }

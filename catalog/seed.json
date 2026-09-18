@@ -27,6 +27,13 @@
         "currency": "USD",
         "interval": null,
         "productID": null
+      },
+      "tags": [
+        "essentials",
+        "beginner"
+      ],
+      "access": {
+        "kind": "free"
       }
     }
   ],

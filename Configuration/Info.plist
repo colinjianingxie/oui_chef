@@ -57,5 +57,7 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a picture of your finished dish to save in your private cooking history.</string>
 </dict>
 </plist>

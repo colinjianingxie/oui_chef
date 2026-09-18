@@ -3,6 +3,7 @@ import SwiftUI
 struct VoiceSessionView: View {
     let store: ChefStore
     let transition: Namespace.ID
+    @State private var showingPreparation = false
     private var voice: GuidedVoice { store.voice }
 
     private var title: String {
@@ -43,6 +44,15 @@ struct VoiceSessionView: View {
                         .accessibilityLabel("Close voice")
                         .accessibilityHint("Stops the microphone and returns to your kitchen. Timers keep running.")
                         Text("Tap to stop").font(.subheadline).foregroundStyle(.secondary)
+                        if let session = store.session {
+                            if session.finished {
+                                Button("Take photo") { store.photoAttemptID = session.id }.buttonStyle(FilledButton())
+                                Button("Save without a photo") { store.endSession(); store.showingVoice = false }
+                            } else if session.pendingRecovery != nil { RecoveryView(store: store) }
+                            else if !session.ready {
+                                Button("Check ingredients on screen") { showingPreparation = true }
+                            }
+                        }
                         Spacer(minLength: 16)
                         if voice.isStarting || (voice.enabled && !voice.isListening) {
                             ProgressView().tint(Theme.green)
@@ -81,6 +91,9 @@ struct VoiceSessionView: View {
         }
         .foregroundStyle(Theme.ink)
         .task { await voice.start() }
-        .onDisappear { voice.stop() }
+        .sheet(isPresented: $showingPreparation) { CookingView(store: store) }
+        .onChange(of: store.session?.ready) { _, ready in if ready == true { showingPreparation = false } }
+        .onChange(of: store.session?.id) { _, id in if id == nil { showingPreparation = false } }
+        .onDisappear { if !showingPreparation { voice.stop() } }
     }
 }

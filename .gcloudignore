@@ -8,3 +8,11 @@ backend/__pycache__/
 backend/.env*
 backend/*.test.mjs
 **/.DS_Store
+
+!OuiChef/
+OuiChef/*
+!OuiChef/Core/
+OuiChef/Core/*
+!OuiChef/Core/Resources/
+OuiChef/Core/Resources/*
+!OuiChef/Core/Resources/catalog-tags.json

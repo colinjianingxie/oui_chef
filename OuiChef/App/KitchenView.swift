@@ -68,6 +68,9 @@ struct KitchenView: View {
         .coordinateSpace(name: "kitchen")
         .onPreferenceChange(VoiceOriginKey.self) { if let origin = $0 { voiceOrigin = origin } }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: store.showingVoice)
+        .sheet(isPresented: Binding(get: { store.photoAttemptID != nil }, set: { if !$0 { store.photoAttemptID = nil } })) {
+            if let id = store.photoAttemptID { DishPhotoView(store: store, attemptID: id, accountID: store.accountID) }
+        }
         .sheet(isPresented: $showSettings) { OnboardingView(store: store, editing: true) }
         .sheet(isPresented: Binding(get: { store.selectedRecipeID != nil }, set: { if !$0 { store.selectedRecipeID = nil } })) {
             if let recipe = store.selectedRecipe { RecipeDetailView(store: store, recipe: recipe) }
@@ -130,8 +133,8 @@ struct KitchenView: View {
                                 Button { store.selectedSetID = set.id } label: {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(set.title).font(.headline)
-                                        Text(set.chefName + " · " + set.price.label).font(.caption)
-                                        Text(set.classificationIDs.compactMap { id in store.classifications.first { $0.id == id }?.name }.joined(separator: " · ")).font(.caption2)
+                                        Text(set.chefName + " · " + set.accessLabel).font(.caption)
+                                        Text(set.discoveryTags.compactMap { id in store.classifications.first { $0.id == id }?.name }.joined(separator: " · ")).font(.caption2)
                                     }.padding(14).background(store.selectedSetID == set.id ? Theme.sage : .white, in: RoundedRectangle(cornerRadius: 16))
                                 }.buttonStyle(.plain)
                             }
@@ -146,7 +149,7 @@ struct KitchenView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(["All"] + store.classifications.filter { $0.appliesTo.contains("recipe") }.map(\.id), id: \.self) { item in
+                        ForEach(["All"] + store.classifications.map(\.id), id: \.self) { item in
                             Button { filter = item } label: {
                                 Text(store.classifications.first { $0.id == item }?.name ?? item).font(.subheadline).padding(.horizontal, 18).padding(.vertical, 10)
                                     .background(filter == item ? Theme.green : .white.opacity(0.65), in: Capsule())
@@ -176,7 +179,7 @@ struct KitchenView: View {
             Button { store.openRecipe(recipe.id) } label: {
                 RecipeArtwork(style: recipe.style).frame(height: 185)
                     .overlay(alignment: .topLeading) {
-                        Label(recipe.minutes, systemImage: "clock").font(.caption.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 7)
+                        Label(recipe.timeLabel, systemImage: "clock").font(.caption.weight(.medium)).padding(.horizontal, 12).padding(.vertical, 7)
                             .background(Theme.cream, in: Capsule()).padding(14)
                     }
             }.buttonStyle(.plain).accessibilityLabel("View \(recipe.title)")
@@ -259,7 +262,7 @@ struct RecipeDetailView: View {
                                 Button("Publish recipe") { Task { publishing = true; await store.publishSelectedDraft(); publishing = false } }
                             }
                     }
-                    HStack(spacing: 20) { Label(recipe.minutes, systemImage: "clock"); Label(recipe.style.name, systemImage: "leaf") }.font(.caption)
+                    HStack(spacing: 20) { Label(recipe.timeLabel, systemImage: "clock"); Label(recipe.style.name, systemImage: "leaf") }.font(.caption)
                     Stepper("\(recipe.yieldLabel.capitalized): \(servings)", value: $servings, in: 1...recipe.maximumServings)
                     Text("Before we cook").font(Theme.serif(28))
                     Text("A quick check for a smoother cooking experience.").font(.subheadline).foregroundStyle(.secondary)

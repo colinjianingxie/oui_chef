@@ -3,14 +3,16 @@
   "recipes": [
     {
       "id": "spaghetti",
-      "version": 2,
+      "version": 3,
       "title": "Sunday Spaghetti",
       "subtitle": "A little garlic. A slow simmer. A very good dinner.",
       "style": "pasta",
       "tags": [
-        "Dinner",
-        "Vegetarian",
-        "Vegan"
+        "italian",
+        "dinner",
+        "pasta",
+        "beginner",
+        "weeknight"
       ],
       "minutes": "30 min",
       "activeMinutes": 15,
@@ -303,20 +305,39 @@
       ],
       "chefID": "chef_margarita",
       "chefName": "Chef Margarita",
-      "recipeSetID": "kitchen_essentials"
+      "recipeSetID": "kitchen_essentials",
+      "totalMinutes": 30,
+      "recoveryOptions": [
+        {
+          "id": "extend_sauce",
+          "title": "Add unsalted tomatoes",
+          "kind": "addition",
+          "ingredientIDs": [
+            "tomatoes"
+          ],
+          "minimum": 25,
+          "maximum": 100,
+          "maximumTotal": 200,
+          "nodeIDs": [
+            "simmer"
+          ],
+          "instruction": "Use unsalted tomatoes of the same checked product. Stir the measured extra tomatoes into the sauce and simmer until combined. This dilutes seasoning but may change acidity; taste before adding more.",
+          "criterion": "Has the sauce combined, and is the seasoning more comfortable?"
+        }
+      ]
     },
     {
       "id": "bread",
-      "version": 1,
+      "version": 2,
       "title": "Your First Loaf",
       "subtitle": "Flour-dusted hands. A golden crust. You made this.",
       "style": "bread",
       "tags": [
-        "Baking",
-        "Vegetarian",
-        "Vegan"
+        "bread",
+        "baking",
+        "beginner"
       ],
-      "minutes": "3–4 hr",
+      "minutes": "3\u20134 hr",
       "activeMinutes": 25,
       "baseServings": 1,
       "maximumServings": 1,
@@ -509,7 +530,7 @@
             {
               "id": "cue_0",
               "afterSeconds": 1800,
-              "text": "We are on the second rise now. How is your shaped loaf looking—has it become noticeably puffy?"
+              "text": "We are on the second rise now. How is your shaped loaf looking\u2014has it become noticeably puffy?"
             }
           ]
         },
@@ -517,8 +538,8 @@
           "id": "preheat",
           "kind": "action",
           "title": "Preheat the oven",
-          "instruction": "Set the oven to 220°C / 425°F. Keep the rising dough outside the oven.",
-          "criterion": "Has the oven reached 220°C / 425°F?",
+          "instruction": "Set the oven to 220\u00b0C / 425\u00b0F. Keep the rising dough outside the oven.",
+          "criterion": "Has the oven reached 220\u00b0C / 425\u00b0F?",
           "dependsOn": [
             "shape"
           ],
@@ -590,17 +611,39 @@
       ],
       "chefID": "chef_margarita",
       "chefName": "Chef Margarita",
-      "recipeSetID": "kitchen_essentials"
+      "recipeSetID": "kitchen_essentials",
+      "totalMinutes": 180,
+      "maximumMinutes": 240,
+      "recoveryOptions": [
+        {
+          "id": "moisten_dough",
+          "title": "Moisten dry dough",
+          "kind": "addition",
+          "ingredientIDs": [
+            "water"
+          ],
+          "minimum": 2,
+          "maximum": 5,
+          "maximumTotal": 10,
+          "nodeIDs": [
+            "knead"
+          ],
+          "instruction": "Work the measured extra water into the dough gradually, then knead until evenly absorbed. Pause to feel its texture before considering another addition.",
+          "criterion": "Is the dough hydrated and smooth rather than dry or tearing?"
+        }
+      ]
     },
     {
       "id": "margarita",
-      "version": 2,
+      "version": 3,
       "title": "The Classic Margarita",
       "subtitle": "Bright lime, good tequila, and a moment to unwind.",
       "style": "tequila",
       "tags": [
-        "Drinks",
-        "Alcohol"
+        "mexican",
+        "cocktails",
+        "mixology",
+        "beginner"
       ],
       "minutes": "5 min",
       "activeMinutes": 5,
@@ -750,7 +793,29 @@
       ],
       "chefID": "chef_margarita",
       "chefName": "Chef Margarita",
-      "recipeSetID": "kitchen_essentials"
+      "recipeSetID": "kitchen_essentials",
+      "totalMinutes": 5,
+      "recoveryOptions": [
+        {
+          "id": "restore_balance",
+          "title": "Restore the original balance",
+          "kind": "balance",
+          "ingredientIDs": [
+            "tequila",
+            "liqueur",
+            "lime"
+          ],
+          "minimum": 1,
+          "maximum": 2,
+          "maximumTotal": 2,
+          "nodeIDs": [
+            "shake",
+            "strain"
+          ],
+          "instruction": "Check the extra ingredients, then add the measured additions. Split into batches if needed, shake again with ice, and taste before serving. The larger batch contains more alcohol; share it as additional servings.",
+          "criterion": "Is the drink balanced to your taste, and thoroughly chilled?"
+        }
+      ]
     }
   ]
 }

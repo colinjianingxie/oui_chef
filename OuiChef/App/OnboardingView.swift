@@ -158,7 +158,7 @@ struct ProfileView: View {
                 Text("Your kitchen.").font(Theme.serif(40))
                 Text("A little more confidence, every time you cook.").foregroundStyle(.secondary)
                 HStack(spacing: 30) {
-                    VStack(alignment: .leading) { Text("\(store.archive.history.filter(\.finished).count)").font(Theme.serif(40)); Text("recipes completed").font(.caption) }
+                    VStack(alignment: .leading) { Text("\(store.archive.dishes.count)").font(Theme.serif(40)); Text("recipes completed").font(.caption) }
                     VStack(alignment: .leading) { Text("\(store.archive.savedRecipes.count)").font(Theme.serif(40)); Text("recipes saved").font(.caption) }
                 }.kitchenCard()
                 Button { showAccount = true } label: {
@@ -168,13 +168,19 @@ struct ProfileView: View {
                     }.font(.subheadline).kitchenCard()
                 }.buttonStyle(.plain).accessibilityIdentifier("account-button")
                 VoiceSettingsView(store: store)
-                Text("Cooking history").font(Theme.serif(27))
-                if store.archive.history.isEmpty { Text("Your first delicious memory is just a recipe away.").foregroundStyle(.secondary) }
-                ForEach(store.archive.history) { session in
+                Text("Completed recipes").font(Theme.serif(27))
+                if store.archive.dishes.isEmpty { Text("Your first delicious memory is just a recipe away.").foregroundStyle(.secondary) }
+                ForEach(store.archive.dishes) { dish in CompletedDishCard(store: store, dish: dish) }
+                if store.hasMoreDishes { Button("Load more completed recipes") { Task { await store.loadDishes(more: true) } } }
+                if let notice = store.dishNotice {
+                    Text(notice).font(.caption).foregroundStyle(.secondary)
+                    Button("Retry sync") { store.syncDishes(); Task { await store.loadDishes() } }
+                }
+                ForEach(store.archive.history.filter { !$0.finished }) { session in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(session.recipe.title).font(Theme.serif(23))
-                        Text(session.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
-                        Text(session.finished ? "Completed" : "Ended · \(session.completed.count) tasks completed").font(.caption).foregroundStyle(Theme.green)
+                        Text("Unfinished · \(session.completed.count) tasks completed").font(.caption)
+                        Button("Resume cooking") { store.resumeAttempt(session.id) }
                     }.kitchenCard()
                 }
                 DisclosureGroup("Usage measurements") {
@@ -186,7 +192,9 @@ struct ProfileView: View {
                     }.padding(.top, 12)
                 }.kitchenCard()
             }.padding(24)
-        }.sheet(isPresented: $showAccount) { AccountView() }
+        }.refreshable { await store.loadDishes() }
+        .task { await store.loadDishes() }
+        .sheet(isPresented: $showAccount) { AccountView() }
     }
 }
 

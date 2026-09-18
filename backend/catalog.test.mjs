@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Firestore, Timestamp } from 'firebase-admin/firestore';
-import { publishRecipe, draftRevision, cardFor } from './catalog.mjs';
+import { publishRecipe, draftRevision, cardFor, canonicalTags } from './catalog.mjs';
 
 // Run with the Firebase emulator only; never touches the live project.
 const project = 'demo-ouichef';
@@ -25,7 +25,8 @@ test('Firestore protects drafts, subscriptions, admins, and publication across a
   t.after(async () => {
     for (const path of ['recipes/paid-recipe', 'recipes/new-draft', 'recipes/private-set-recipe', 'recipeSets/paid', 'recipeSets/private', 'chefs/owned', 'users/regular']) await db.recursiveDelete(db.doc(path));
   });
-  const recipe = (await db.doc('recipes/spaghetti/versions/2').get()).data().recipe;
+  const version = (await db.doc('recipes/spaghetti').get()).data().publishedVersion;
+  const recipe = (await db.doc(`recipes/spaghetti/versions/${version}`).get()).data().recipe;
   await db.doc('chefs/owned').set({ id: 'owned', name: 'Owner Chef', ownerUID: 'owner', status: 'published' });
   await db.doc('recipeSets/paid').set({ id: 'paid', chefID: 'owned', status: 'published', price: { kind: 'subscription', amountMinor: 499, currency: 'USD', interval: 'month', productID: 'test.paid' } });
   await db.doc('recipeSets/private').set({ id: 'private', chefID: 'owned', status: 'draft', price: { kind: 'free' } });
@@ -41,8 +42,8 @@ test('Firestore protects drafts, subscriptions, admins, and publication across a
   await db.doc('recipes/private-set-recipe/versions/1').set({ recipe: paid, published: true });
 
   await allowed('/recipes/spaghetti');
-  await allowed('/recipes/spaghetti/versions/2');
-  await allowed('/recipes/spaghetti/versions/2', token('phone-user', undefined));
+  await allowed(`/recipes/spaghetti/versions/${version}`);
+  await allowed(`/recipes/spaghetti/versions/${version}`, token('phone-user', undefined));
   await allowed('/ingredients/garlic');
   await denied('/recipes/paid-recipe/versions/1', regular);
   await denied('/recipes/private-set-recipe/versions/1', regular);
@@ -82,4 +83,12 @@ test('Firestore protects drafts, subscriptions, admins, and publication across a
   await denied('/recipes/paid-recipe/versions/draft', regular);
   // Firestore may reorder map keys; validated drafts must remain publishable.
   assert.equal(draftRevision({ recipe: { b: 1, a: 2 }, classificationIDs: [] }), draftRevision({ recipe: { a: 2, b: 1 }, classificationIDs: [] }));
+});
+
+
+test('canonical discovery tags normalize duplicates and reject unsupported metadata', () => {
+  assert.deepEqual(canonicalTags([' Pasta ', 'pasta', 'dinner']), ['pasta', 'dinner']);
+  assert.throws(() => canonicalTags(['unknown-category']));
+  assert.throws(() => canonicalTags([null]));
+  assert.throws(() => canonicalTags(Array(21).fill('pasta')));
 });

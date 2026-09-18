@@ -15,7 +15,7 @@ final class FirestoreCatalog {
                drafts: Bool = false, after: DocumentSnapshot? = nil) async throws -> ([RecipeSummary], DocumentSnapshot?) {
         var query: Query = drafts ? db.collection("recipes").whereField("hasDraft", isEqualTo: true) : db.collection("recipes").whereField("status", isEqualTo: "published")
         if !search.isEmpty { query = query.whereField("searchTokens", arrayContains: search.lowercased().trimmingCharacters(in: .whitespaces)) }
-        else if let classification { query = query.whereField("classificationIDs", arrayContains: classification) }
+        else if let classification { query = query.whereField("tags", arrayContains: classification) }
         if let setID { query = query.whereField("recipeSetID", isEqualTo: setID) }
         query = query.order(by: "title").limit(to: 12)
         if let after { query = query.start(afterDocument: after) }
@@ -35,7 +35,10 @@ final class FirestoreCatalog {
         if let after { query = query.start(afterDocument: after) }
         let docs = try await query.getDocuments(source: .server).documents
         let sets = try docs.map { try $0.data(as: RecipeSet.self) }
-        for set in sets { try set.price.validate() }
+        for set in sets {
+            if let price = set.price { try price.validate() }
+            guard set.access != nil || set.price != nil else { throw CookingError.invalid("Recipe-set access is missing.") }
+        }
         return (sets, docs.count == 12 ? docs.last : nil)
     }
 
@@ -52,9 +55,6 @@ final class FirestoreCatalog {
 
     func categories() async throws -> [FoodCategory] {
         try await db.collection("ingredientCategories").getDocuments(source: .server).documents.map { try $0.data(as: FoodCategory.self) }
-    }
-    func classifications() async throws -> [RecipeClassification] {
-        try await db.collection("classifications").getDocuments(source: .server).documents.map { try $0.data(as: RecipeClassification.self) }
     }
 
     func recipe(_ id: String, draft: Bool) async throws -> (Recipe, IngredientLibrary, String?) {

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "italian",
+    "name": "Italian"
+  },
+  {
+    "id": "mexican",
+    "name": "Mexican"
+  },
+  {
+    "id": "dinner",
+    "name": "Dinner"
+  },
+  {
+    "id": "drinks",
+    "name": "Drinks"
+  },
+  {
+    "id": "bread",
+    "name": "Bread"
+  },
+  {
+    "id": "pasta",
+    "name": "Pasta"
+  },
+  {
+    "id": "cocktails",
+    "name": "Cocktails"
+  },
+  {
+    "id": "baking",
+    "name": "Baking"
+  },
+  {
+    "id": "mixology",
+    "name": "Mixology"
+  },
+  {
+    "id": "beginner",
+    "name": "Beginner"
+  },
+  {
+    "id": "weeknight",
+    "name": "Weeknight"
+  },
+  {
+    "id": "essentials",
+    "name": "Kitchen essentials"
+  }
+]

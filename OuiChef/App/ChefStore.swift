@@ -22,12 +22,24 @@ final class ChefStore {
     private var voiceProposal: RatioProposal?
     private var ratioConfirmation: VoiceConfirmation?
     private var stepStartConfirmations: [String: VoiceConfirmation] = [:]
-    private let storage = KitchenStorage()
-    private var accountID: String?
+    let storage = KitchenStorage()
+    let dishCloud = DishCloud()
+    var dishSyncTask: Task<Void, Never>?
+    var dishGeneration = UUID()
+    var deletingAccount = false
+    var dishCursor: DocumentSnapshot?
+    var hasMoreDishes = false
+    var loadingDishes = false
+    var dishNotice: String?
+    var photoAttemptID: UUID?
+    var recoveryProposal: RecoveryPlan?
+    private var recoveryConfirmation: VoiceConfirmation?
+    private var recoveryStartTurn = 0
+    private(set) var accountID: String?
     let remoteCatalog = FirestoreCatalog()
     private(set) var recipeCards: [RecipeSummary] = []
     private(set) var recipeSets: [RecipeSet] = []
-    private(set) var classifications: [RecipeClassification] = []
+    private(set) var classifications: [CatalogTag] = CatalogTag.all
     private(set) var catalogAdmin = false
     private(set) var catalogLoading = false
     private(set) var catalogOffline = false
@@ -58,6 +70,7 @@ final class ChefStore {
         do {
             catalog = try RecipeCatalog.bundled()
             archive = try storage.load(accountID: accountID, catalog: catalog!)
+            for saved in archive.history where saved.finished { archive.reconcileCompletion(saved) }
             archive.session?.guidancePaused = true
             recipeCards = recipes.map(RecipeSummary.init)
             if let library = archive.session?.ingredientLibrary { mergeLibrary(library) }
@@ -72,10 +85,7 @@ final class ChefStore {
         voice.onAssistantText = { [weak self] text in self?.chefMessage = text }
         voice.onReady = { [weak self] in
             guard let self, self.foreground else { return }
-            self.voiceToolResults = [:]
-            self.voiceProposal = nil
-            self.ratioConfirmation = nil
-            self.stepStartConfirmations = Dictionary(uniqueKeysWithValues: (self.session?.activeNodes ?? []).map { ($0.id, VoiceConfirmation(target: $0.id, userTurn: self.voice.userTurn)) })
+            self.resetVoiceActions()
             if self.session != nil { self.resume() }
             else { self.say("Hi, I'm Oui Chef. What would you like to make: pasta, bread, or a margarita?") }
         }
@@ -94,6 +104,9 @@ final class ChefStore {
         let adoptGuest = accountID == nil && uid != nil
         voice.stop(); showingVoice = false; selectedRecipeID = nil
         voiceToolResults = [:]; voiceProposal = nil; ratioConfirmation = nil; stepStartConfirmations = [:]
+        dishGeneration = UUID()
+        dishSyncTask?.cancel(); dishSyncTask = nil; dishCursor = nil; photoAttemptID = nil
+        dishNotice = nil; hasMoreDishes = false; loadingDishes = false; recoveryProposal = nil
         accountID = uid
         catalogGeneration = UUID(); queryGeneration = UUID(); detailGeneration = UUID()
         catalogAdmin = false; previewDrafts = false; selectedRecipe = nil; draftRevision = nil
@@ -106,19 +119,33 @@ final class ChefStore {
         do {
             guard let catalog else { throw CookingError.invalid("Recipes could not be loaded.") }
             archive = try storage.load(accountID: uid, adoptingGuest: adoptGuest, catalog: catalog)
+            for saved in archive.history where saved.finished { archive.reconcileCompletion(saved) }
             archive.session?.guidancePaused = true
             canPersist = true
             if let session { chefMessage = session.resumeMessage(at: Date()) }
         } catch { self.error = "This account's saved kitchen could not be loaded. It has been preserved. \(error.localizedDescription)" }
         if let library = archive.session?.ingredientLibrary { mergeLibrary(library) }
         syncNotifications()
-        Task { await loadLibrary() }
+        Task { await loadLibrary(); await loadDishes() }; syncDishes()
     }
 
-    func eraseAccountKitchen(_ uid: String) throws { try storage.delete(accountID: uid) }
+    func eraseAccountKitchen(_ uid: String) async throws {
+        guard uid == accountID else { throw CancellationError() }
+        deletingAccount = true; dishGeneration = UUID()
+        defer { deletingAccount = false }
+        voice.stop(); showingVoice = false
+        dishSyncTask?.cancel()
+        await dishSyncTask?.value
+        dishSyncTask = nil
+        try await dishCloud.deleteAll(uid)
+        for dish in archive.completedDishes ?? [] { if let file = dish.photoFile { try? FileManager.default.removeItem(at: storage.photoURL(file)) } }
+        try storage.delete(accountID: uid)
+        archive = AppArchive(); syncNotifications()
+    }
 
     @discardableResult
-    private func commit(_ edit: (inout AppArchive) throws -> Void) -> Bool {
+    func commit(_ edit: (inout AppArchive) throws -> Void) -> Bool {
+        guard !deletingAccount else { return false }
         guard canPersist else { error = "The saved kitchen needs recovery before changes can be saved."; return false }
         do {
             var next = archive
@@ -133,6 +160,7 @@ final class ChefStore {
     @discardableResult
     func updateSession(_ edit: (inout CookingSession) throws -> Void) -> Bool {
         let oldTimers = session?.timers
+        let oldRecovery = session?.pendingRecovery?.id
         let result = commit { next in
             guard var session = next.session else { throw CookingError.invalid("Choose a recipe first.") }
             let previousCount = session.events.count
@@ -142,8 +170,16 @@ final class ChefStore {
                 next.usage = next.usage.filter { $0.date > Date().addingTimeInterval(-30 * 86_400) }
             }
             next.session = session
+            next.reconcileCompletion(session)
+        }
+        if result && oldRecovery != session?.pendingRecovery?.id {
+            recoveryStartTurn = voice.userTurn
+            if session?.events.last?.kind == "recovery_performed", let nodeID = session?.events.last?.nodeID {
+                stepStartConfirmations[nodeID] = VoiceConfirmation(target: nodeID, userTurn: voice.userTurn)
+            }
         }
         if result && oldTimers != session?.timers { syncNotifications() }
+        if result { syncDishes() }
         return result
     }
 
@@ -169,20 +205,21 @@ final class ChefStore {
     }
 
     func choose(_ recipe: Recipe, servings: Int) {
-        guard session == nil else { error = "Finish or end your current recipe before starting another."; return }
         if commit({ next in
-            next.session = try CookingSession(recipe: recipe, servings: servings)
+            let replacement = try CookingSession(recipe: recipe, servings: servings)
+            next.activate(replacement)
             next.session?.ingredientLibrary = libraryForRecipe(recipe)
             if next.preferences.analyticsEnabled { next.usage.append(UsageRecord(name: "recipe_selected", recipeID: recipe.id)) }
         }) {
-            showingVoice = false
+            resetVoiceActions(); syncNotifications(); syncDishes()
             chefMessage = "Review your preferences and ingredients on screen, then we’ll cook \(recipe.title.lowercased()) together."
         }
     }
     func endSession() {
-        guard let current = session else { return }
+        guard var current = session else { return }
+        current.timers = []
         voice.stop()
-        if commit({ next in next.history.insert(current, at: 0); next.session = nil }) {
+        if commit({ next in next.history.removeAll { $0.id == current.id }; next.history.insert(current, at: 0); next.reconcileCompletion(current); next.session = nil }) {
             chefMessage = current.finished ? "You made it. I hope every bite is a good one." : "Your cooking session has been saved to history."
             syncNotifications()
         }
@@ -196,7 +233,7 @@ final class ChefStore {
     }
     func complete(_ node: CookingNode) {
         if updateSession({ try $0.finish(node.id, confirmed: true, at: Date()) }) {
-            if session?.finished == true { say("You did it! How did your \(session!.recipe.title.lowercased()) turn out?") }
+            if session?.finished == true { offerCompletionPhoto() }
             else if let next = session?.eligibleNodes.first { say("Got it. Next, \(next.title.lowercased()). \(next.instruction)") }
             else { say("Got it. Let's keep an eye on the other tasks while they finish.") }
         }
@@ -230,8 +267,17 @@ final class ChefStore {
     }
     func offerCoaching() {
         guard foreground, voice.isListening, !voice.isSpeaking, !voice.isResponding, !voice.hearingSpeech,
-              Date().timeIntervalSince(voice.lastInteraction) > 5,
-              let cue = session?.dueCue(at: Date(), detailed: preferences.detailedGuidance) else { return }
+              session?.guidancePaused != true, Date().timeIntervalSince(voice.lastInteraction) > 5 else { return }
+        let now = Date()
+        if let parked = archive.history.first(where: { attempt in
+            !attempt.finished && attempt.timers.contains { $0.deadline <= now } && now.timeIntervalSince(attempt.events.last { $0.kind == "parked_timer_check" }?.date ?? .distantPast) >= 120
+        }), let timer = parked.timers.first(where: { $0.deadline <= now }) {
+            if commit({ next in
+                if let index = next.history.firstIndex(where: { $0.id == parked.id }) { next.history[index].record("parked_timer_check", at: now) }
+            }) { say("Your earlier \(parked.recipe.title) needs a check. \(parked.recipe.node(timer.nodeID)?.criterion ?? "How is it going?") Return to that recipe to update its progress.") }
+            return
+        }
+        guard session?.pendingRecovery == nil, let cue = session?.dueCue(at: now, detailed: preferences.detailedGuidance) else { return }
         if updateSession({ $0.deliver(cue, at: Date()) }) {
             say(cue.text)
         }
@@ -250,8 +296,9 @@ final class ChefStore {
         // Recent events are sufficient; no transcript history or analytics are sent.
         var snapshot = session
         snapshot?.ingredientLibrary = nil
+        snapshot?.sourceRecipe = nil; snapshot?.correctionUndo = nil
         if let events = snapshot?.events { snapshot?.events = Array(events.suffix(8)) }
-        return ["now": ISO8601DateFormatter().string(from: Date()), "session": snapshot.map(object) ?? NSNull(),
+        return ["adaptiveCooking": true, "now": ISO8601DateFormatter().string(from: Date()), "session": snapshot.map(object) ?? NSNull(),
                 "sessionID": session?.id.uuidString ?? "none", "revision": session?.revision ?? 0,
                 "catalog": object(Array((voiceSearchResults.isEmpty ? recipeCards : voiceSearchResults).prefix(12))), "preferences": object(preferences),
                 "restrictions": Dictionary(uniqueKeysWithValues: recipes.map { ($0.id, restriction(for: snapshot?.recipe.id == $0.id ? snapshot!.recipe : $0) ?? "") }),
@@ -261,7 +308,9 @@ final class ChefStore {
                             "blocking": review?.blocking ?? [], "notes": review?.notes ?? []]
                 },
                 "pendingRatioProposalID": voiceProposal?.id.uuidString ?? "none",
-                "manualPreparationRequired": session.map { !$0.ready } ?? false]
+                "manualPreparationRequired": session.map { !$0.ready } ?? false,
+                "pendingRecoveryProposal": recoveryProposal.map(object) ?? NSNull(),
+                "parkedTimers": archive.history.filter { !$0.finished && !$0.timers.isEmpty }.map { ["sessionID": $0.id.uuidString, "title": $0.recipe.title, "timers": object($0.timers)] }]
     }
 
     private func performVoiceTool(id: String, name: String, arguments: String) async -> String {
@@ -294,10 +343,10 @@ final class ChefStore {
                 let recipe = try await loadRecipe(try request.requiredTarget(), draft: false)
                 guard generation == catalogGeneration, connection == voice.connectionID else { throw CancellationError() }
                 try request.validate(session: session)
-                guard session == nil, let value = request.value,
+                guard let value = request.value,
                       value.rounded() == value, value > 0, value <= Double(recipe.maximumServings) else { throw CookingError.invalid("Choose an available recipe and supported serving count.") }
                 choose(recipe, servings: Int(value))
-                guard session != nil else { throw CookingError.invalid(error ?? "Could not select this recipe.") }
+                guard session?.recipe.id == recipe.id, session?.id.uuidString != request.sessionID else { throw CookingError.invalid(error ?? "Could not select this recipe.") }
                 selectedRecipeID = nil
                 detail = "Recipe selected. The manual ingredient checklist is now on screen. The user must finish it and tap Cook with Oui Chef before starting a task."
             case .confirm_ingredient, .confirm_tool, .confirm_labels:
@@ -321,7 +370,11 @@ final class ChefStore {
                 let confirmation = stepStartConfirmations[target] ?? VoiceConfirmation(target: target, userTurn: 0)
                 try confirmation.validate(target: target, userTurn: voice.userTurn)
                 try change { try $0.finish(target, confirmed: true, at: now) }
-                detail = "The user-reported task is complete. Explain the next eligible step; start its timer only when the user says they have begun."
+                if session?.finished == true {
+                    detail = offerCompletionPhoto()
+                        ? "The dish is complete and saved. Invite the user to take a photo for their cooking history; the Take photo button is available. They may skip."
+                        : "The dish is complete and saved. The photo invitation has already been offered; do not repeat it."
+                } else { detail = "The user-reported task is complete. Explain the next eligible step; start its timer only when the user says they have begun." }
             case .recheck: try change { try $0.recheck(request.requiredTarget(), at: now) }
             case .pause: try change { $0.pause(true, at: now) }; detail = "Guidance paused; timers and listening continue."
             case .resume:
@@ -348,6 +401,45 @@ final class ChefStore {
                 try change { try $0.apply(proposal, at: now) }
                 voiceProposal = nil; ratioConfirmation = nil
                 detail = "Adjustment applied. Recheck the changed ingredient amount before cooking."
+            case .report_amount:
+                guard let value = request.value, let unit = request.unit else { throw CookingError.invalid("Report the actual total and its displayed unit.") }
+                try change { try $0.reportAmount(request.requiredTarget(), amount: value, unit: unit, at: now) }
+                recoveryProposal = nil
+                detail = "Actual quantity recorded. Explain supported recovery options; never claim this removed anything already added."
+            case .reopen_node:
+                try change { try $0.reopen(request.requiredTarget(), at: now) }
+                detail = "Incorrect completion report corrected. The original timer deadline and unrelated progress are preserved."
+            case .undo_correction:
+                try change { try $0.undoCorrection(at: now) }
+            case .propose_recovery:
+                guard let current = session, let nodeID = request.nodeID else { throw CookingError.invalid("Choose the affected cooking task.") }
+                if let restriction = restriction(for: current.recipe) { throw CookingError.invalid(restriction) }
+                let proposal = try current.proposeRecovery(request.requiredTarget(), value: request.value ?? 1, nodeID: nodeID)
+                recoveryProposal = proposal
+                recoveryConfirmation = VoiceConfirmation(target: proposal.id.uuidString, userTurn: voice.userTurn)
+                detail = "Read each exact proposed addition and its unit, explain the instructions, and wait for a new user turn before confirm_recovery. Nothing has been added yet."
+            case .confirm_recovery:
+                guard let proposal = recoveryProposal, let confirmation = recoveryConfirmation else { throw CookingError.invalid("Preview a recovery first.") }
+                try confirmation.validate(target: request.requiredTarget(), userTurn: voice.userTurn)
+                try change { try $0.acceptRecovery(proposal, at: now) }
+                recoveryProposal = nil; recoveryConfirmation = nil; recoveryStartTurn = voice.userTurn
+                detail = "Recovery plan accepted. Ask the user to manually check the extra ingredients on screen, then guide the addition. Use complete_recovery only after they report actually doing it."
+            case .complete_recovery:
+                guard voice.userTurn > recoveryStartTurn else { throw CookingError.invalid("Wait until the user reports actually performing the recovery.") }
+                if let recipe = session?.recipe, let restriction = restriction(for: recipe) { throw CookingError.invalid(restriction) }
+                try change { try $0.completeRecovery(at: now) }
+                detail = "Actual additions recorded. Ask the recovery's sensory question and wait before completing the cooking task."
+            case .cancel_recovery:
+                try change { $0.cancelRecovery(at: now) }
+                detail = "Unperformed recovery cancelled. If ingredients were already added, record their actual amounts instead."
+            case .resume_attempt:
+                guard let id = UUID(uuidString: try request.requiredTarget()), archive.history.contains(where: { $0.id == id && !$0.finished }) else { throw CookingError.invalid("Choose a saved unfinished cooking attempt.") }
+                resumeAttempt(id)
+                detail = "The previous recipe is active again. Check its current progress and timer deadlines."
+            case .take_photo:
+                guard let current = session, current.finished else { throw CookingError.invalid("Finish the dish before taking its completion photo.") }
+                photoAttemptID = current.id
+                detail = "The photo screen is open. The user controls the camera and may skip."
             case .set_guidance:
                 guard request.value == 0 || request.value == 1 else { throw CookingError.invalid("Choose detailed or quieter guidance.") }
                 var prefs = preferences; prefs.detailedGuidance = request.value == 1
@@ -367,8 +459,8 @@ final class ChefStore {
         case .resume: if session != nil { resume() }
         case .mute: voice.stop(); chefMessage = "Microphone off. Your timers will keep running."
         case .recipe(let id):
-            if session == nil { openRecipe(id); say("\(recipeCards.first { $0.id == id }?.title ?? id). Open the recipe below and choose your servings to get started.") }
-            else { say("You're already cooking \(session!.recipe.title). Finish or end this session before changing recipes.") }
+            openRecipe(id)
+            say("\(recipeCards.first { $0.id == id }?.title ?? id). Choose your servings to start. Your current progress and timers will be saved if you switch.")
         case .quieter, .detailed:
             var prefs = preferences
             prefs.detailedGuidance = command == .detailed
@@ -393,11 +485,18 @@ final class ChefStore {
         }
     }
 
+    func resetVoiceActions() {
+        voiceToolResults = [:]; voiceProposal = nil; ratioConfirmation = nil
+        recoveryProposal = nil; recoveryConfirmation = nil; recoveryStartTurn = voice.userTurn
+        stepStartConfirmations = Dictionary(uniqueKeysWithValues: (session?.activeNodes ?? []).map { ($0.id, VoiceConfirmation(target: $0.id, userTurn: voice.userTurn)) })
+    }
+
+    func refreshTimers() { syncNotifications() }
+
     private func syncNotifications() {
         notificationTask?.cancel()
-        let timers = session?.timers ?? []
-        let recipe = session?.recipe
-        let sessionID = session?.id.uuidString ?? ""
+        let attempts = ([session].compactMap { $0 } + archive.history.filter { !$0.finished && !$0.timers.isEmpty })
+        let timers = attempts.flatMap { attempt in attempt.timers.map { (attempt, $0) } }
         notificationTask = Task { [weak self] in
             let center = UNUserNotificationCenter.current()
             let requests = await center.pendingNotificationRequests()
@@ -410,11 +509,13 @@ final class ChefStore {
                 guard !Task.isCancelled else { return }
                 guard allowed else { return }
                 self?.notificationNotice = nil
-                for timer in timers where timer.deadline > Date() {
+                for (attempt, timer) in timers where timer.deadline > Date() {
+                    let recipe = attempt.recipe
+                    let sessionID = attempt.id.uuidString
                     guard !Task.isCancelled else { return }
                     let content = UNMutableNotificationContent()
-                    content.title = "Time to check \(recipe?.node(timer.nodeID)?.title.lowercased() ?? "your recipe")"
-                    content.body = recipe?.node(timer.nodeID)?.criterion ?? "Check how your cooking is going."
+                    content.title = "Time to check \(recipe.node(timer.nodeID)?.title.lowercased() ?? "your recipe")"
+                    content.body = recipe.node(timer.nodeID)?.criterion ?? "Check how your cooking is going."
                     content.sound = .default
                     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, timer.deadline.timeIntervalSinceNow), repeats: false)
                     let identifier = "oui-chef-\(sessionID)-\(timer.nodeID)-\(timer.deadline.timeIntervalSince1970)"
@@ -435,12 +536,11 @@ extension ChefStore {
         do {
             async let admin = remoteCatalog.isAdmin()
             async let sets = remoteCatalog.sets()
-            async let facets = remoteCatalog.classifications()
             async let categories = remoteCatalog.categories()
-            let (access, packs, labels, groups) = try await (admin, sets, facets, categories)
+            let (access, packs, groups) = try await (admin, sets, categories)
             guard generation == catalogGeneration else { return }
             catalogAdmin = access; recipeSets = packs.0; setCursor = packs.1; hasMoreSets = packs.1 != nil
-            classifications = labels; catalog?.categories = groups
+            catalog?.categories = groups
             if !(preferences.dislikedFoodIDs ?? []).isEmpty {
                 let library = try await remoteCatalog.ingredientLibrary((preferences.dislikedFoodIDs ?? []))
                 guard generation == catalogGeneration else { return }
@@ -472,7 +572,7 @@ extension ChefStore {
                 cards = result.0; cursor = result.1
             }
             guard generation == catalogGeneration, request == queryGeneration, !Task.isCancelled else { return }
-            recipeCards += saved ? cards.filter { (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) && (classification == nil || $0.classificationIDs.contains(classification!)) } : cards
+            recipeCards += saved ? cards.filter { (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) && (classification == nil || $0.discoveryTags.contains(classification!)) } : cards
             savedOffset += savedIDs.count
             recipeCursor = cursor; hasMoreRecipes = saved ? savedOffset < archive.savedRecipes.count : cursor != nil
             catalogOffline = false; catalogNotice = nil
@@ -533,6 +633,15 @@ extension ChefStore {
         catalog?.recipes = [recipe]
         draftRevision = draft ? revision : nil
         return recipe
+    }
+
+    func switchRecipe(_ id: String, servings: Int) async {
+        let generation = catalogGeneration, attempt = session?.id, revision = session?.revision
+        do {
+            let recipe = try await loadRecipe(id, draft: false)
+            guard generation == catalogGeneration, session?.id == attempt, session?.revision == revision else { throw CookingError.invalid("Cooking changed while opening the recipe. Try again.") }
+            choose(recipe, servings: servings)
+        } catch { if generation == catalogGeneration { self.error = error.localizedDescription } }
     }
 
     func openRecipe(_ id: String) {
