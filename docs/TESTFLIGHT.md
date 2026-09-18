@@ -2,7 +2,25 @@
 
 App Store Connect: **Oui Chef AI** (`6812917370`) · Bundle ID: `com.xie.ouichef` · Team: `84KXUNPGCM`.
 
-## Current release: 1.0 (4)
+## Current release: 1.0 (5)
+
+Apple accepted the adaptive cooking/photo build on **September 18, 2026 at 12:02:50 UTC** (8:02:50 a.m. Eastern). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; the last observed upload state was **PROCESSING**. Check availability in [App Store Connect → TestFlight](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `990f009cbb7082966422be7b81c99d23b3b1157f`. Upload ID: `cdd72f35-0c0a-4b32-a74b-6a6f32fbd2db`. Sanitized receipt: `.build/testflight/OuiChef-1.0-5-upload-receipt.json`.
+
+Archive: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-18/OuiChef-1.0-adaptive-0800.xcarchive`. Oui Chef’s dSYM is retained. Xcode assigned uploaded build **5**; source/archive version remains **1.0 (2)**. Signature verification passed, including bundled recipes, ingredients, tags, camera permission text, and 30 privacy manifests.
+
+This build adds cooking corrections, supported ratio/taste recovery, and recipe switching that preserves progress and timers. Completed dishes can include an optional camera or library photo in the user's private profile; history and photos sync after sign-in. Ingredient checks remain manual. Catalog tags and recipe-set access metadata are simplified while retaining compatibility with installed builds. Chef authoring, subscription sales, and the OpenAI voice migration remain deferred.
+
+Backend: `oui-chef-voice-00008-vqh`. Private Firestore/Storage rules and tag indexes are deployed. Starter recipe versions are spaghetti 3, bread 2, and margarita 3, with previous versions retained. The three-session concurrency limit, 10-minute voice limit, and shared $15 estimated xAI guardrail are unchanged.
+
+Validation: 23 Swift core tests, 15 backend tests including Firestore/Storage emulator access rules, and the iPhone 14 / iOS 18.4 cooking and account UI flows passed. Checks covered manual preparation, timer persistence, completion photos, guest-to-account synchronization, and account/photo deletion. Live authentication/concurrency and catalog checks passed; temporary accounts were removed. No paid AI calls were made during release validation.
+
+**Symbol warnings:** Xcode again reported missing dSYMs for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc. Upload succeeded and app symbols are preserved; crash frames inside those SDK binaries may lack source-level detail. The upload record itself reported no errors or warnings.
+
+No tester groups, beta review, or App Store release submissions were changed. Physical camera capture, spoken cooking recovery, real provider sign-in, and kitchen content review still need device acceptance testing. This build was not installed directly on Colin’s phone. App Store privacy answers must also account for private completed-dish metadata and photo uploads; they were not changed by this upload.
+
+## Previous release: 1.0 (4)
 
 Apple accepted the Firestore catalog/admin build on **September 17, 2026 at 03:08:27 UTC** (September 16 at 11:08:27 p.m. Eastern). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; the last observed upload state was **PROCESSING**. Check availability in [App Store Connect → TestFlight](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
 
