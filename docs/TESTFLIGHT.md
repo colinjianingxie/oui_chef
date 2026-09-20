@@ -1,5 +1,19 @@
 # TestFlight
 
+## September 20, 2026 — companion redesign, build 7
+
+Oui Chef AI **1.0 (7)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **23:02:05 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; Apple's upload record was **PROCESSING** with no record-level errors or warnings. Tester availability has not been verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `19c2f09`. Upload ID: `e6d6ee3d-cac0-4b07-b5d0-70f70233c831`. Sanitized receipt: `.build/testflight/OuiChef-1.0-7-upload-receipt.json`.
+
+This release contains the private cookbook, persistent preferences, URL imports, iOS Share Extension, normalized recipe screens, guided cooking with stateful timers, contextual AI interface, and private cooking album. Equipment is optional. **The redesigned Cloud Run backend is awaiting deployment approval after automatic approval review blocked its source upload and runtime permission changes. The AI/import endpoints in this build will not work until that deployment is completed.** Firestore was backed up and cleared, Auth accounts were retained, the new Firestore/Storage rules and indexes are live, and the import queue exists. See [deployment status](COMPANION_REDESIGN.md#september-20-release-operations).
+
+Verification: 27 Swift core tests, 23 backend/rules tests, both new simulator UI journeys, live xAI structured extraction/research/transcription checks, and signed Release archiving passed. Both app and Share Extension profiles include the shared App Group. The archive signature verifies. A live Cloud Tasks import check remains pending backend deployment; physical-device Share Sheet, microphone interruptions, and locked-phone alerts still require acceptance checks.
+
+Archive: `/Volumes/Margarita01/OuiChef-Builds/redesign-20260920/release/OuiChef-1.0-redesign.xcarchive`. App and Share Extension dSYMs are retained. Xcode assigned upload build 7; the source/archive setting remains 1.0 (2). Missing dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc did not prevent upload; those dependency crash frames may have limited symbol detail.
+
+No tester-group assignments, beta-review submissions, or App Store release submissions were changed.
+
 ## September 18, 2026 — metadata search, build 6
 
 Oui Chef AI **1.0 (6)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at 14:07:25 UTC. Xcode reported that Apple is processing the package; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).

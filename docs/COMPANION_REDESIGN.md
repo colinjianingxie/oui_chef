@@ -73,7 +73,7 @@ No legacy account/catalog data needs to be deleted to activate the new entry poi
 
 The welcome food photograph was generated for this redesign with the image-generation tool: editorial garlic tagliatelle on an ivory ceramic plate and linen, warm natural light, olive accents, and open space above for the welcome heading. It is bundled as `OuiChef/Assets.xcassets/WelcomeFood.imageset/welcome.png`.
 
-Build verification uses a local source copy because several project files are iCloud placeholders. Resolved Swift packages and the first build live under `/Volumes/Margarita01/OuiChef-Builds/redesign-20260920`; the final compilation uses `/tmp/ouichef-redesign-build` on the internal SSD. Earlier temporary Oui Chef build caches were relocated under `previous-caches` with symlinks left at their old `/tmp` paths; `relocations.json` records those moves. Keep the drive mounted to reuse those caches.
+Build verification uses a local source copy because several project files are iCloud placeholders. Resolved Swift packages and the first build live under `/Volumes/Margarita01/OuiChef-Builds/redesign-20260920`; the simulator build was compiled on the internal SSD and then moved to the external drive with a symlink at `/tmp/ouichef-redesign-build`. Release compilation uses `/tmp/ouichef-release-derived`. Earlier temporary Oui Chef build caches were relocated under `previous-caches` with symlinks left at their old `/tmp` paths; `relocations.json` records those moves. Keep the drive mounted to reuse those caches.
 
 Verified on September 20: all 27 Swift core tests; all 23 backend tests including isolated Firebase rules tests; one live Grok 4.3 structured extraction (3 ingredients and 3 steps); pinned yt-dlp command-line options. Live smoke testing used a synthetic recipe and kept the API key only in process memory.
 
@@ -81,4 +81,12 @@ Additional live checks: xAI web research returned a cited answer from the origin
 
 The complete app and bundled Share Extension passed an unsigned iOS simulator build (both arm64 and x86_64). The temporary build copy recovered the unchanged icon from its existing generator and the privacy manifest from the earlier exported app because those two source files were iCloud placeholders; their unchanged contents and the other placeholders were restored from preserved copies.
 
-Final simulator acceptance: both onboarding and the complete cooking journey passed, including the pinned onboarding action, timer pause, browsing completed steps, explicit finish, photo skip, and album entry. Screenshots are available in `/tmp/ouichef-redesign-preview/index.html`. `git diff --check` passed. The backend and rules have not been deployed, Apple provisioning for the new extension has not been changed, and no TestFlight upload was performed.
+Final simulator acceptance: both onboarding and the complete cooking journey passed, including the pinned onboarding action, timer pause, browsing completed steps, explicit finish, photo skip, and album entry. Screenshots are available in `/tmp/ouichef-redesign-preview/index.html`. `git diff --check` passed.
+
+## September 20 release operations
+
+Source commit `19c2f09` is pushed to GitHub. Firestore's 129 documents were exported successfully to the private project bucket at `gs://oui-chef-dev-20260914.firebasestorage.app/admin-backups/before-redesign-reset-20260920`, then every collection and subcollection was deleted. A subsequent collection listing was empty. Firebase Auth accounts were preserved; no user photo objects existed. The new Firestore indexes, Firestore rules, and Storage rules are deployed.
+
+Cloud Tasks is enabled, with queue `oui-chef-imports` in `us-east1` limited to one concurrent dispatch and three attempts. The new Cloud Run backend and runtime IAM changes are awaiting explicit approval after automatic approval review rejected source upload and permission expansion. Until that deployment completes, the redesigned AI/import endpoints are unavailable. The prior voice revision remains deployed.
+
+Automatic provisioning and the signed Release archive succeeded for both `com.xie.ouichef` and `com.xie.ouichef.share`, including the shared App Group. Both app and extension dSYMs are preserved in `/Volumes/Margarita01/OuiChef-Builds/redesign-20260920/release/OuiChef-1.0-redesign.xcarchive`. See [TestFlight](TESTFLIGHT.md) for the upload receipt and build number.
