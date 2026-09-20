@@ -10,7 +10,7 @@ struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private let titles = ["A sous chef\nthat listens.", "A kitchen\nthat fits you.", "A little care.\nBefore we cook.", "Your taste.\nYour pace.", "Your ingredients.\nYour choice.", "Make yourself\nat home."]
+    private let titles = ["A sous chef\nthat listens.", "A kitchen\nthat fits you.", "A little care.\nBefore we cook.", "Your taste.\nYour pace.", "Your ingredients.\nYour choice.", "Already in\nyour kitchen.", "Make yourself\nat home."]
     private var columns: [GridItem] { Array(repeating: GridItem(.flexible(), spacing: 10), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2) }
 
     var body: some View {
@@ -29,7 +29,8 @@ struct OnboardingView: View {
                         if step == 2 { allergies }
                         if step == 3 { taste }
                         if step == 4 { dislikes }
-                        if step == 5 { guidance }
+                        if step == 5 { equipment }
+                        if step == 6 { guidance }
                     }.padding(.horizontal, 24).padding(.vertical, 16)
                 }.scrollBounceBehavior(.basedOnSize).id(step)
                 Button {
@@ -98,7 +99,7 @@ struct OnboardingView: View {
     }
     private var taste: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("Tell us what you enjoy. Recipe adjustments will always be shown before they are applied.").font(.subheadline).foregroundStyle(.secondary)
+            Text("Your saved taste choices apply automatically within each recipe's supported range. You can adjust them before cooking.").font(.subheadline).foregroundStyle(.secondary)
             tasteSlider("Spice", low: "Mild", high: "Hot", value: $preferences.spice)
             tasteSlider("Salt", low: "Less", high: "More", value: $preferences.salt)
             tasteSlider("Sweetness", low: "Less", high: "More", value: $preferences.sweetness)
@@ -125,6 +126,19 @@ struct OnboardingView: View {
             Toggle("Keep screen awake while cooking", isOn: $preferences.keepScreenAwake)
             Toggle("Share usage measurements", isOn: $preferences.analyticsEnabled)
             Text("Optional counts of cooking actions, stored locally in this preview. No recordings, transcripts, or allergy details are included.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+    private var equipment: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Select what you have. We'll skip reminders for your everyday tools and point out specialized equipment.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(ChefPreferences.equipmentChoices, id: \.self) { tool in
+                    selection(tool, selected: preferences.equipment.contains(tool)) { toggle(tool, in: &preferences.equipment) }
+                }
+            }
+            Text("Everyday utensils include a spoon, colander, mixing bowl, and serving glasses. You can update this in preferences.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
     private func tasteSlider(_ title: String, low: String, high: String, value: Binding<Double>) -> some View {

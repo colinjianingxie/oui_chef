@@ -1,10 +1,10 @@
 import SwiftUI
 
 enum Theme {
-    static let cream = Color(red: 0.98, green: 0.97, blue: 0.94)
-    static let ink = Color(red: 0.14, green: 0.19, blue: 0.16)
-    static let green = Color(red: 0.31, green: 0.43, blue: 0.32)
-    static let sage = Color(red: 0.88, green: 0.92, blue: 0.84)
+    static let cream = Color(red: 0.97, green: 0.953, blue: 0.918)
+    static let ink = Color(red: 0.14, green: 0.15, blue: 0.115)
+    static let green = Color(red: 0.27, green: 0.31, blue: 0.20)
+    static let sage = Color(red: 0.90, green: 0.875, blue: 0.817)
     static let orange = Color(red: 0.86, green: 0.40, blue: 0.19)
     static func serif(_ size: CGFloat) -> Font { .system(size: size, weight: .regular, design: .serif) }
 }

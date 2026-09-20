@@ -14,13 +14,11 @@ final class FirestoreCatalog {
     func cards(search: String = "", classification: String? = nil, setID: String? = nil,
                drafts: Bool = false, after: DocumentSnapshot? = nil) async throws -> ([RecipeSummary], DocumentSnapshot?) {
         var query: Query = drafts ? db.collection("recipes").whereField("hasDraft", isEqualTo: true) : db.collection("recipes").whereField("status", isEqualTo: "published")
-        if !search.isEmpty { query = query.whereField("searchTokens", arrayContains: search.lowercased().trimmingCharacters(in: .whitespaces)) }
-        else if let classification { query = query.whereField("tags", arrayContains: classification) }
+        if let classification { query = query.whereField("tags", arrayContains: classification) }
         if let setID { query = query.whereField("recipeSetID", isEqualTo: setID) }
-        query = query.order(by: "title").limit(to: 12)
-        if let after { query = query.start(afterDocument: after) }
-        let docs = try await query.getDocuments(source: .server).documents
-        return (try docs.map { try $0.data(as: RecipeSummary.self) }, docs.count == 12 ? docs.last : nil)
+        let term = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await page(query.order(by: "title"), size: 12, after: after,
+                              matching: term.isEmpty ? nil : { (card: RecipeSummary) in card.matches(term) })
     }
 
     func savedCards(_ ids: [String]) async throws -> [RecipeSummary] {
@@ -45,12 +43,34 @@ final class FirestoreCatalog {
     func ingredients(search: String, category: String?, after: DocumentSnapshot?) async throws -> ([Food], DocumentSnapshot?) {
         var query: Query = db.collection("ingredients")
         let term = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !term.isEmpty { query = query.whereField("searchTokens", arrayContains: term) }
-        else if let category { query = query.whereField("categoryAncestors", arrayContains: category) }
-        query = query.order(by: "name").limit(to: 6)
-        if let after { query = query.start(afterDocument: after) }
-        let docs = try await query.getDocuments(source: .server).documents
-        return (try docs.map { try $0.data(as: Food.self) }, docs.count == 6 ? docs.last : nil)
+        if let category { query = query.whereField("categoryAncestors", arrayContains: category) }
+        let catalog = RecipeCatalog(schemaVersion: 1, foods: [], recipes: [], categories: term.isEmpty ? [] : try await categories())
+        return try await page(query.order(by: "name"), size: 6, after: after,
+                              matching: term.isEmpty ? nil : { (food: Food) in catalog.matches(food, query: term) })
+    }
+
+    // ponytail: POC search scans metadata pages; use a text index when catalog size makes reads/latency costly.
+    private func page<T: Decodable>(_ query: Query, size: Int, after: DocumentSnapshot?,
+                                    matching: ((T) -> Bool)?) async throws -> ([T], DocumentSnapshot?) {
+        let batchSize = matching == nil ? size : 50
+        var cursor = after, results: [T] = []
+        while true {
+            try Task.checkCancellation()
+            var next = query.limit(to: batchSize)
+            if let cursor { next = next.start(afterDocument: cursor) }
+            let docs = try await next.getDocuments(source: .server).documents
+            try Task.checkCancellation()
+            for (index, doc) in docs.enumerated() {
+                let value = try doc.data(as: T.self)
+                guard matching?(value) ?? true else { continue }
+                results.append(value)
+                if results.count == size {
+                    return (results, index == docs.count - 1 && docs.count < batchSize ? nil : doc)
+                }
+            }
+            if docs.count < batchSize { return (results, nil) }
+            cursor = docs.last
+        }
     }
 
     func categories() async throws -> [FoodCategory] {

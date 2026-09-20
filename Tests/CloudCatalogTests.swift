@@ -2,6 +2,19 @@ import XCTest
 @testable import OuiChefCore
 
 final class CloudCatalogTests: XCTestCase {
+    func testSearchUsesExistingMetadataWithoutStoredTokens() throws {
+        let catalog = try RecipeCatalog.bundled()
+        var card = RecipeSummary(catalog.recipes.first { $0.id == "spaghetti" }!)
+        XCTAssertTrue(card.matches("  PASTA\n"))
+        XCTAssertTrue(card.matches("spag"))
+        XCTAssertFalse(card.matches("margarita"))
+        card.title = "Crème fraîche pasta"
+        XCTAssertTrue(card.matches("creme"))
+        XCTAssertTrue(catalog.searchFoods(" ALLIUMS ").contains { $0.id == "garlic" })
+        XCTAssertTrue(catalog.searchFoods("spring onion").contains { $0.id == "scallion" })
+        XCTAssertTrue(catalog.searchFoods("YEAST").contains { $0.id == "yeast" })
+    }
+
     func testRemoteIngredientSnapshotRestoresOfflineAndRejectsBrokenReferences() throws {
         var catalog = try RecipeCatalog.bundled()
         var recipe = catalog.recipes.first { $0.id == "spaghetti" }!

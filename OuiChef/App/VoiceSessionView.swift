@@ -91,9 +91,15 @@ struct VoiceSessionView: View {
         }
         .foregroundStyle(Theme.ink)
         .task { await voice.start() }
-        .sheet(isPresented: $showingPreparation) { CookingView(store: store) }
+        .sheet(isPresented: $showingPreparation) {
+            NavigationStack {
+                CookingView(store: store)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .principal) { Text("Oui Chef").font(Theme.serif(24)) } }
+            }
+        }
         .onChange(of: store.session?.ready) { _, ready in if ready == true { showingPreparation = false } }
-        .onChange(of: store.session?.id) { _, id in if id == nil { showingPreparation = false } }
+        .onChange(of: store.session?.id) { _, id in showingPreparation = id != nil && store.session?.ready == false }
         .onDisappear { if !showingPreparation { voice.stop() } }
     }
 }

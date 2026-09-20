@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Firestore, Timestamp } from 'firebase-admin/firestore';
-import { publishRecipe, draftRevision, cardFor, canonicalTags } from './catalog.mjs';
+import { publishRecipe, draftRevision, cardFor, canonicalTags, canonicalAccess } from './catalog.mjs';
 
 // Run with the Firebase emulator only; never touches the live project.
 const project = 'demo-ouichef';
@@ -28,10 +28,10 @@ test('Firestore protects drafts, subscriptions, admins, and publication across a
   const version = (await db.doc('recipes/spaghetti').get()).data().publishedVersion;
   const recipe = (await db.doc(`recipes/spaghetti/versions/${version}`).get()).data().recipe;
   await db.doc('chefs/owned').set({ id: 'owned', name: 'Owner Chef', ownerUID: 'owner', status: 'published' });
-  await db.doc('recipeSets/paid').set({ id: 'paid', chefID: 'owned', status: 'published', price: { kind: 'subscription', amountMinor: 499, currency: 'USD', interval: 'month', productID: 'test.paid' } });
-  await db.doc('recipeSets/private').set({ id: 'private', chefID: 'owned', status: 'draft', price: { kind: 'free' } });
+  await db.doc('recipeSets/paid').set({ id: 'paid', chefID: 'owned', status: 'published', access: { kind: 'subscription', productID: 'test.paid' } });
+  await db.doc('recipeSets/private').set({ id: 'private', chefID: 'owned', status: 'draft', access: { kind: 'free' } });
   const paid = { ...recipe, id: 'paid-recipe', chefID: 'owned', chefName: 'Owner Chef', recipeSetID: 'paid', version: 1 };
-  const draft = { recipe: { ...paid, title: 'Private revision' }, classificationIDs: ['pasta'] };
+  const draft = { recipe: { ...paid, title: 'Private revision', tags: ['pasta'] } };
   const revision = draftRevision(draft);
   await db.doc('recipes/paid-recipe').set(cardFor(paid, ['pasta'], 'published', true));
   await db.doc('recipes/paid-recipe/versions/1').set({ recipe: paid, published: true });
@@ -79,6 +79,9 @@ test('Firestore protects drafts, subscriptions, admins, and publication across a
   assert.equal((await db.doc('recipes/paid-recipe').get()).data().hasDraft, false);
   assert.equal((await db.doc('recipes/paid-recipe/versions/1').get()).data().recipe.title, paid.title);
   assert.equal((await db.doc('recipes/paid-recipe/versions/2').get()).data().recipe.title, draft.recipe.title);
+  assert.equal((await db.doc('recipes/paid-recipe').get()).data().classificationIDs, undefined);
+  assert.equal((await db.doc('recipes/paid-recipe').get()).data().searchTokens, undefined);
+  assert.equal((await db.doc('recipes/paid-recipe/versions/draft').get()).exists, false);
   await assert.rejects(publishRecipe(db, { uid: 'owner' }, 'paid-recipe', revision));
   await denied('/recipes/paid-recipe/versions/draft', regular);
   // Firestore may reorder map keys; validated drafts must remain publishable.
@@ -91,4 +94,6 @@ test('canonical discovery tags normalize duplicates and reject unsupported metad
   assert.throws(() => canonicalTags(['unknown-category']));
   assert.throws(() => canonicalTags([null]));
   assert.throws(() => canonicalTags(Array(21).fill('pasta')));
+  assert.deepEqual(canonicalAccess({ kind: 'free' }), { kind: 'free' });
+  assert.throws(() => canonicalAccess({ kind: 'subscription' }));
 });

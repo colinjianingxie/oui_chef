@@ -1,3 +1,4 @@
+import { handleCompanion } from './companion.mjs';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -9,12 +10,13 @@ import { handleAccountRequest } from './accounts.mjs';
 
 export function createVoiceServer({ db, auth, connectProvider = openProvider }) {
 const server = createServer((req, res) => {
+  if (req.url?.startsWith('/companion/')) { void handleCompanion(req, res, { db, auth }); return; }
   if (req.url === '/catalog/publish') { void handleCatalogRequest(req, res, { db, auth }); return; }
   if (req.url === '/account/claim-voice') { void handleAccountRequest(req, res, { db, auth }); return; }
   res.writeHead(req.url === '/health' ? 200 : 404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ service: 'oui-chef-voice' }));
 });
-const sockets = new WebSocketServer({ noServer: true, maxPayload: 100000, perMessageDeflate: false });
+const sockets = new WebSocketServer({ noServer: true, maxPayload: 750000, perMessageDeflate: false });
 
 server.on('upgrade', async (req, socket, head) => {
   socket.on('error', () => {});
@@ -167,6 +169,6 @@ return server;
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [{ initializeApp }, { getAuth }, { getFirestore }] = await Promise.all([
     import('firebase-admin/app'), import('firebase-admin/auth'), import('firebase-admin/firestore')]);
-  initializeApp();
+  initializeApp({ storageBucket: process.env.FIREBASE_STORAGE_BUCKET ?? "oui-chef-dev-20260914.firebasestorage.app" });
   createVoiceServer({ db: getFirestore(), auth: getAuth() }).listen(Number(process.env.PORT ?? 8080), '0.0.0.0');
 }

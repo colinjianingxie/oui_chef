@@ -8,10 +8,11 @@ service cloud.firestore {
     function owns(chefID) {
       return request.auth != null && get(/databases/$(database)/documents/chefs/$(chefID)).data.ownerUID == request.auth.uid;
     }
+    function activeUser(uid) { return request.auth != null && request.auth.uid == uid && !exists(/databases/$(database)/documents/deletedAccounts/$(uid)); }
     function manages(chefID) { return admin() || owns(chefID); }
     function entitled(setID) {
       let pack = get(/databases/$(database)/documents/recipeSets/$(setID)).data;
-      return pack.status == 'published' && (('access' in pack ? pack.access.kind : pack.price.kind) == 'free' ||
+      return pack.status == 'published' && (pack.access.kind == 'free' ||
         (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)/recipeSetEntitlements/$(setID)).data.expiresAt > request.time));
     }
     match /catalogAdmins/{email} {
@@ -35,7 +36,6 @@ service cloud.firestore {
     }
     match /ingredients/{id} { allow read: if true; }
     match /ingredientCategories/{id} { allow read: if true; }
-    match /classifications/{id} { allow read: if true; }
     match /users/{uid}/recipeSetEntitlements/{id} { allow get: if request.auth != null && request.auth.uid == uid; }
     match /users/{uid}/completedRecipes/{id} {
       function owner() { return request.auth != null && request.auth.uid == uid; }
@@ -56,6 +56,23 @@ service cloud.firestore {
       allow read, delete: if owner();
       allow create, update: if owner() && validDish();
     }
+    match /users/{uid}/settings/cooking {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if activeUser(uid)
+        && request.resource.data.keys().hasOnly(['payload', 'updatedAt'])
+        && request.resource.data.payload is string && request.resource.data.payload.size() <= 20000
+        && request.resource.data.updatedAt is number;
+    }
+    match /users/{uid}/cookbook/{id} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if activeUser(uid)
+        && request.resource.data.keys().hasOnly(['id', 'payload', 'updatedAt'])
+        && request.resource.data.id == id && request.resource.data.payload is string
+        && request.resource.data.payload.size() <= 180000 && request.resource.data.updatedAt is number;
+      match /versions/{version} { allow read: if request.auth != null && request.auth.uid == uid; }
+    }
+    match /users/{uid}/imports/{id} { allow read: if request.auth != null && request.auth.uid == uid; }
+    match /users/{uid}/cooks/{id} { allow read: if request.auth != null && request.auth.uid == uid; }
     // Catalog publication, entitlements, and voice accounting remain server-owned.
     match /{document=**} { allow read, write: if false; }
   }

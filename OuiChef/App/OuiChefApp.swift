@@ -4,62 +4,15 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 import GoogleSignIn
+import UserNotifications
 
 @main
 struct OuiChefApp: App {
     @UIApplicationDelegateAdaptor(AuthAppDelegate.self) private var delegate
-    var body: some Scene { WindowGroup { ChefRootView() } }
+    var body: some Scene { WindowGroup { CompanionRootView().onOpenURL { url in if !Auth.auth().canHandle(url) { _ = GIDSignIn.sharedInstance.handle(url) } } } }
 }
 
-private struct ChefRootView: View {
-    @State private var store: ChefStore
-    @State private var account: AccountSession
-
-    init() {
-        let account = AccountSession.shared
-        let store = ChefStore(accountID: account.accountID)
-        _account = State(initialValue: account)
-        _store = State(initialValue: store)
-    }
-    @Environment(\.scenePhase) private var phase
-
-    var body: some View {
-            Group {
-                if !store.preferences.onboardingComplete && store.catalog != nil {
-                    OnboardingView(store: store)
-                } else {
-                    KitchenView(store: store)
-                }
-            }
-                .task { await store.loadLibrary(); await store.loadDishes(); store.syncDishes() }
-                .onAppear {
-                    account.onDeleteLocalAccount = { [weak store] uid in try await store?.eraseAccountKitchen(uid) }
-                }
-                .onOpenURL { url in
-                    if !Auth.auth().canHandle(url) { _ = GIDSignIn.sharedInstance.handle(url) }
-                }
-                .onChange(of: account.accountID) { _, uid in store.switchAccount(uid) }
-                .onChange(of: account.identityID) { _, _ in store.voice.refreshTesterID() }
-                .tint(Theme.green)
-                .preferredColorScheme(.light)
-                .alert("A little attention needed", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-                    Button("OK") { store.error = nil }
-                } message: { Text(store.error ?? "") }
-                .onChange(of: phase) { _, phase in
-                    if phase == .active { store.foreground = true; store.syncDishes() }
-                    else if phase == .background { store.background() }
-                    UIApplication.shared.isIdleTimerDisabled = phase == .active && store.session != nil && store.preferences.keepScreenAwake
-                }
-                .onChange(of: store.session?.id) { _, id in
-                    UIApplication.shared.isIdleTimerDisabled = phase == .active && id != nil && store.preferences.keepScreenAwake
-                }
-                .onChange(of: store.preferences.keepScreenAwake) { _, enabled in
-                    UIApplication.shared.isIdleTimerDisabled = phase == .active && store.session != nil && enabled
-                }
-    }
-}
-
-final class AuthAppDelegate: NSObject, UIApplicationDelegate {
+final class AuthAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--auth-emulator"),
@@ -71,6 +24,9 @@ final class AuthAppDelegate: NSObject, UIApplicationDelegate {
         #else
         FirebaseApp.configure()
         #endif
+        if let group = Bundle.main.object(forInfoDictionaryKey: "OuiChefSharedKeychainGroup") as? String {
+            do { try Auth.auth().useUserAccessGroup(group) } catch { print("Shared sign-in unavailable for this build.") }
+        }
         let firestoreSettings = Firestore.firestore().settings
         firestoreSettings.cacheSettings = MemoryCacheSettings()
         #if DEBUG
@@ -83,9 +39,11 @@ final class AuthAppDelegate: NSObject, UIApplicationDelegate {
         }
         #endif
         Firestore.firestore().settings = firestoreSettings
+        UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
         return true
     }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) { completionHandler([.banner, .sound]) }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
     }

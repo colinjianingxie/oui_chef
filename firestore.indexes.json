@@ -15,38 +15,6 @@
       ]
     },
     {
-      "collectionGroup": "recipeSets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "classificationIDs",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "ingredients",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "searchTokens",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "name",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "ingredients",
       "queryScope": "COLLECTION",
       "fields": [
@@ -83,88 +51,8 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "classificationIDs",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "searchTokens",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
           "fieldPath": "recipeSetID",
           "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "recipeSetID",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "classificationIDs",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "status",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "recipeSetID",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "searchTokens",
-          "arrayConfig": "CONTAINS"
         },
         {
           "fieldPath": "title",
@@ -195,88 +83,8 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "classificationIDs",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "hasDraft",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "searchTokens",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "hasDraft",
-          "order": "ASCENDING"
-        },
-        {
           "fieldPath": "recipeSetID",
           "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "hasDraft",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "recipeSetID",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "classificationIDs",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "title",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "recipes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "hasDraft",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "recipeSetID",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "searchTokens",
-          "arrayConfig": "CONTAINS"
         },
         {
           "fieldPath": "title",

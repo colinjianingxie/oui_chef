@@ -49,6 +49,12 @@ struct IngredientGroup: Identifiable {
 extension RecipeCatalog {
     func food(_ id: String) -> Food? { foods.first { $0.id == id } }
 
+    func isPantryBasic(_ ingredient: Ingredient, preferences: ChefPreferences) -> Bool {
+        let review = review(foodID: ingredient.foodID, preferences: preferences)
+        return (food(ingredient.foodID)?.traits ?? []).contains("pantry_basic")
+            && review.blocking.isEmpty && review.notes.isEmpty
+    }
+
     func categoryPath(_ id: String?) -> [FoodCategory] {
         let index = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
         var path: [FoodCategory] = []
@@ -78,9 +84,14 @@ extension RecipeCatalog {
         return foods.filter { food in
             let path = categoryPath(food.categoryID)
             let inCategory = categoryID == nil || path.contains { $0.id == categoryID }
-            let names = [food.name] + (food.aliases ?? []) + path.map(\.name)
-            return inCategory && (query.isEmpty || names.contains { $0.localizedStandardContains(query) })
+            return inCategory && matches(food, query: query)
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func matches(_ food: Food, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let names = [food.name] + (food.aliases ?? []) + categoryPath(food.categoryID).map(\.name)
+        return query.isEmpty || names.contains { $0.localizedStandardContains(query) }
     }
 
     func review(foodID: String, preferences: ChefPreferences) -> IngredientReview {
@@ -130,5 +141,31 @@ extension RecipeCatalog {
         }
         let issues = Set(recipe.ingredients.flatMap { review(foodID: $0.foodID, preferences: preferences).blocking }).sorted()
         return issues.isEmpty ? nil : issues.joined(separator: " ")
+    }
+}
+
+extension CookingSession {
+    /// Apply saved choices before checking quantities, never to food already being cooked.
+    mutating func applySavedPreferences(_ preferences: ChefPreferences, catalog: RecipeCatalog, at date: Date) throws {
+        guard started.isEmpty else { return }
+        for ingredient in recipe.ingredients {
+            let review = catalog.review(foodID: ingredient.foodID, preferences: preferences)
+            guard !review.blocking.isEmpty || !review.notes.isEmpty else { continue }
+            if let alternative = ingredient.alternatives?.first(where: {
+                let review = catalog.review(foodID: $0.foodID, preferences: preferences)
+                return review.blocking.isEmpty && review.notes.isEmpty
+            }) {
+                try selectAlternative(alternative.foodID, for: ingredient.id, at: date)
+            }
+        }
+        let original = sourceRecipe ?? recipe
+        for option in recipe.ratios where option.preference != nil {
+            guard let ingredient = original.ingredients.first(where: { $0.id == option.ingredientID }),
+                  let base = original.ingredients.first(where: { $0.id == option.baseIngredientID }) else { continue }
+            let defaultValue = ingredient.amount / base.amount
+            let ratio = option.preferredValue(preferences, defaultValue: defaultValue) ?? defaultValue
+            let proposal = try proposeRatio(option.id, value: ratio)
+            if abs(proposal.oldAmount - proposal.newAmount) > 0.00001 { try apply(proposal, at: date) }
+        }
     }
 }

@@ -52,7 +52,7 @@ final class VoiceFlowTests: XCTestCase {
         app.launch()
         if app.buttons["Get started"].waitForExistence(timeout: 3) {
             app.buttons["Get started"].tap()
-            for _ in 0..<4 { app.buttons["Continue"].tap() }
+            for _ in 0..<5 { app.buttons["Continue"].tap() }
             app.buttons["Let's cook together"].tap()
         }
         let button = app.buttons["Start voice commands"].exists ? app.buttons["Start voice commands"] : app.buttons["Start voice guidance"]

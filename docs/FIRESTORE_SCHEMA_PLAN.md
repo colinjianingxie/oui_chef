@@ -1,6 +1,6 @@
 # Oui Chef catalog, adaptive cooking, and completed-dish plan
 
-Status: current-scope implementation completed September 17, 2026. See [ADAPTIVE_COOKING.md](ADAPTIVE_COOKING.md) for delivered behavior, compatibility fields, validation and remaining device acceptance. The sections below retain the design rationale and explicitly deferred creator/subscription work. Legacy taxonomy/price fields remain during the TestFlight transition.
+Status: core implementation completed September 17, 2026; live catalog cleanup completed September 18. See [FIRESTORE_CATALOG.md](FIRESTORE_CATALOG.md) for the current layout and search tradeoff, and [ADAPTIVE_COOKING.md](ADAPTIVE_COOKING.md) for delivered behavior and validation. The rationale below describes the original migration and deferred creator/subscription work. Legacy taxonomy/price data is removed; `minutes` strings remain for TestFlight build 5 decoding.
 
 ## Recommendation
 
@@ -12,13 +12,13 @@ A field earns its place if it changes what the app displays, retrieves, validate
 
 ### Why `appliesTo` is a good example
 
-The field is in `classifications`, not `ingredientCategories`. All 12 seeded classifications have the same value: `["recipe", "recipeSet"]`. The importer and publisher check it, and the recipe filter chips inspect it. These are real callers, but the identical value makes no useful distinction in the current catalog.
+Before migration, the field was in `classifications`, not `ingredientCategories`. All 12 seeded classifications had the same value: `["recipe", "recipeSet"]`. The importer, publisher, and filter chips read it, but the identical value made no useful distinction. Those documents are now removed.
 
-The app also has both `Recipe.tags` and `classificationIDs`. For example, spaghetti's graph has Dinner/Vegetarian/Vegan while its card has Italian/Dinner/Pasta/Beginner/Weeknight classification IDs. This gives remote and bundled browsing different metadata. One canonical set of discovery tags is simpler.
+The old app also had both `Recipe.tags` and `classificationIDs`. For example, spaghetti's graph had Dinner/Vegetarian/Vegan while its card had Italian/Dinner/Pasta/Beginner/Weeknight classification IDs. That gave remote and bundled browsing different metadata. One canonical set of discovery tags is simpler.
 
 Use `tags: ["italian", "pasta", "dinner", "beginner", "weeknight"]` on that recipe and `tags: ["beginner", "essentials"]` on its set. Tags are stable, normalized strings, validated and deduplicated on import. Sets have their own editorial tags; they do not inherit every tag from every recipe.
 
-Retire the generic `classifications` collection, its `appliesTo`/`kind`/`parentID` machinery, and `classificationIDs` after compatibility migration. Keep an approved tag vocabulary in the version-controlled catalog manifest, used by import validation and the app's curated browse filters. Public creators choose approved tags; normalize case, deduplicate, cap the list, and reject unknown values. Not every supported tag needs a filter chip. This does not provide a remotely editable, localized tag directory; add a small shared directory only when an editorial workflow actually requires it. That directory still does not need `appliesTo` when both recipes and sets support every tag. Do not scan all recipes to discover filter choices.
+The generic `classifications` collection, its `appliesTo`/`kind`/`parentID` machinery, and `classificationIDs` were retired September 18. Keep an approved tag vocabulary in the version-controlled catalog manifest, used by import validation and the app's curated browse filters. Public creators choose approved tags; normalize case, deduplicate, cap the list, and reject unknown values. Not every supported tag needs a filter chip. This does not provide a remotely editable, localized tag directory; add a small shared directory only when an editorial workflow actually requires it. That directory still does not need `appliesTo` when both recipes and sets support every tag. Do not scan all recipes to discover filter choices.
 
 Diet/allergen compatibility stays in ingredient validation. A discovery tag must never authorize an ingredient or establish safety.
 
@@ -160,7 +160,7 @@ For scaling, keep the supported linear/fixed behavior and per-recipe maximum ser
 
 Keep a session's selected recipe/version, effective recipe and ingredient snapshot, servings, manual preparation checks, active/completed nodes, timer deadlines, last/pending check-in, delivered cues, revision, and guidance-pause state.
 
-The effective recipe snapshot contains confirmed substitutions, quantities, and any validated recovery steps. Keep a bounded correction history and one pre-change snapshot for pending/last reversible edits; a generic patch language and event-replay system are unnecessary. Remove obsolete `confirmedTools` and unused equipment preferences through compatible decoding, since tool verification is no longer part of the product.
+The effective recipe snapshot contains confirmed substitutions, quantities, and any validated recovery steps. Keep a bounded correction history and one pre-change snapshot for pending/last reversible edits; a generic patch language and event-replay system are unnecessary. Ignore obsolete `confirmedTools` through compatible decoding. Keep equipment preferences from onboarding to hide owned everyday tools; tool verification is not required.
 
 The session must survive ending a voice connection. Reopening voice reads the current cooking state and asks a relevant question. Elapsed time triggers a readiness check, never automatic completion. Guidance pause and real-world timer progress remain separate. A specific user report can complete the relevant active node without a confirmation popup.
 
@@ -251,9 +251,9 @@ User-editable documents must not contain writable admin, voice-block, or purchas
 
 ### Recipe-set access
 
-Free set: an explicit free access kind. No zero-price/currency/null-interval/null-product boilerplate is needed in the eventual compact format.
+Free set: an explicit free access kind. No zero-price/currency/null-interval/null-product boilerplate is needed in the compact format.
 
-Subscription set: subscription access kind and its StoreKit product ID. When checkout is implemented, obtain the offered/localized price and subscription details from StoreKit; Apple's [`displayPrice`](https://developer.apple.com/documentation/storekit/product/displayprice?changes=_9) supplies the storefront-localized price label. Firestore stores the mapping and server-verified access, rather than a separately editable copy of the price. Existing USD cents fields remain during compatibility migration.
+Subscription set: subscription access kind and its StoreKit product ID. When checkout is implemented, obtain the offered/localized price and subscription details from StoreKit; Apple's [`displayPrice`](https://developer.apple.com/documentation/storekit/product/displayprice?changes=_9) supplies the storefront-localized price label. Firestore stores the mapping and server-verified access, rather than a separately editable copy of the price. Legacy USD cents fields were removed in the September 18 cleanup.
 
 Treat paid publication as a separate release gate: a creator's proposed price does not create an App Store product or grant purchasing access. The platform provisions and approves the product mapping. Verify purchases on the backend, bind them to the signed-in account, process renewal/expiry/refund/revocation events idempotently, and restore access after reinstall. Honor the verified access period when auto-renewal is canceled; handle any supported grace period explicitly.
 
@@ -285,9 +285,9 @@ Design indexes around actual queries:
 - Ingredient name/alias search or one category, paginated.
 - Private draft list and direct authorized detail/version reads.
 
-Retain generated `searchTokens` for bounded prefix/word search; cap token generation and document/import size. Do not describe this as fuzzy search or arbitrary natural-language retrieval. Voice search uses the same bounded catalog interface.
+For the POC, do not store `searchTokens`. Typed and voice search match existing metadata in Swift while scanning authorized Firestore pages. Keep normal browsing paginated and full recipe graphs lazy-loaded. This trades extra metadata reads for a smaller schema; move matching to a text-search index when catalog size warrants it.
 
-Firestore allows at most one `array-contains` clause per disjunction. The current app therefore uses search OR a category/classification array filter, not both. Simple tags retain that limitation. For combined search plus cuisine/difficulty filters, promote only the needed dimensions to scalar fields; multi-tag intersection needs a deliberate retrieval design. Filtering one downloaded page cannot produce correct global matches or counts. See [Firestore query limitations](https://firebase.google.com/docs/firestore/query-data/queries).
+Firestore filters publication status, set membership, and one tag/category before Swift applies the text match. The scan continues past empty pages, so search does not silently miss later matches. Multi-tag intersection and ranked/fuzzy search remain deferred. See [Firestore query limitations](https://firebase.google.com/docs/firestore/query-data/queries).
 
 Keep only composite indexes used by supported screens/queries, including still-supported old clients. Do not create every combination of hypothetical filters. Exempt graphs, long prompts, and unqueried snapshots from indexing; the current version `recipe` map already has an exemption. See [Firestore best practices](https://firebase.google.com/docs/firestore/best-practices).
 
@@ -297,10 +297,10 @@ Bounded recipe structures fit embedded arrays/maps. Growing histories and logs b
 
 1. **Consolidate discovery metadata.** Map classifications and graph tags to one reviewed canonical tag list. Preserve useful discovery labels; move diet/alcohol claims to their actual ingredient-derived checks. Update imports, validation, filters, voice search, and offline fallback together.
 2. **Trim unused authoring fields.** Remove `appliesTo` and generic classification ancestry from the new format; omit empty optional fields. Keep ingredient hierarchy, graph validation, draft revisions, and query-serving generated fields. Add numeric duration estimates and compact set access metadata where the new client uses them.
-3. **Preserve existing TestFlight clients.** Export a backup, test migration against the emulator, add new fields, and dual-write old/new card fields temporarily. Old decoders require `appliesTo`, classifications, price metadata, and formatted minutes. Do not delete those records/fields before old builds are retired or deliberately blocked from the new catalog. Version imports/offline archives where decoding changes, and preserve existing immutable publications.
+3. **Preserve supported TestFlight clients.** The initial migration backed up data and temporarily dual-wrote old/new fields. September 18 cleanup targets build 5 or newer; older builds require updating. Retain formatted `minutes` because build 5 still requires it when decoding. Test cleanup against the emulator and preserve existing immutable publications.
 4. **Migrate without touching active cooking snapshots.** Compare IDs, recipe counts, tags, ownership, and access before/after. Keep users, admin access, entitlement records, budget totals, voice blocks, and historical usage intact. Publish new content versions for material content-format changes.
 5. **Verify the real boundaries.** Public users cannot read drafts; paid graphs remain protected; stale draft publication fails; ingredient changes still trigger preference checks; ordinary scaling cannot erase incorporated ingredients; recovery records actual additions; timers survive corrections/pause/relaunch; voice resume uses revised state; remote and bundled search agree on tags. Check correction dependencies, failed recipe switches, stale/repeated tool calls, and preserved timers from an unfinished attempt. Verify completion invitation deduplication, cancellation/permission denial, offline photo retry, separate repeated cooks, private image access, account switching, and entry/account deletion.
-6. **Remove obsolete data after compatibility ends.** Retire the old classification reader/validator and unused indexes, then remove legacy fields/documents. Retire anonymous voice migration separately. Cloud preferences/bookmarks, centralized analytics, chef pack guidance, and StoreKit checkout are subsequent feature increments, not prerequisites for this cleanup.
+6. **Remove obsolete data.** Completed September 18: removed legacy classification documents/fields, set price metadata, duplicate published drafts, and five unused indexes; backed up every changed document and checked the retained catalog. Retire anonymous voice migration separately. Cloud preferences/bookmarks, centralized analytics, chef pack guidance, and StoreKit checkout are subsequent feature increments, not prerequisites for this cleanup.
 
 The result should be fewer independently authored facts and fewer special cases, while retaining the structured cooking state that makes Oui Chef useful.
 

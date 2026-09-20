@@ -1,5 +1,15 @@
 # TestFlight
 
+## September 18, 2026 — metadata search, build 6
+
+Oui Chef AI **1.0 (6)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at 14:07:25 UTC. Xcode reported that Apple is processing the package; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+This build includes the streamlined ingredient screen and token-free metadata search for typed/voice recipe discovery and ingredient names/aliases/categories. Live Firestore no longer stores `searchTokens`; earlier builds must update for search. Ordinary browsing and recipe detail loading remain paginated/lazy. POC text matching scans metadata pages and should move to a search index as catalog size warrants it.
+
+Checks: 25 Swift core tests, 15 backend/emulator tests, and the full simulator cooking flow passed, including finding “Zucchini” by “COURGETTE” beyond the first metadata page with no token fields. No paid voice calls were made. Backend revision `oui-chef-voice-00011-mjb` is deployed; five obsolete token indexes were removed.
+
+Archive: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-18/OuiChef-1.0-search-1003.xcarchive`. The app signature verifies and its dSYM is retained. Xcode assigned upload build 6; the source/archive setting remains 1.0 (2). Xcode again warned about missing dSYMs for prebuilt dependency frameworks; the upload succeeded.
+
 App Store Connect: **Oui Chef AI** (`6812917370`) · Bundle ID: `com.xie.ouichef` · Team: `84KXUNPGCM`.
 
 ## Current release: 1.0 (5)

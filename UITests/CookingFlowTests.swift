@@ -9,7 +9,7 @@ final class CookingFlowTests: XCTestCase {
         if app.buttons["Get started"].waitForExistence(timeout: 3) {
             app.buttons["Get started"].tap()
             XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 5))
-            for page in ["Dietary preferences", "Allergy preferences", "Taste preferences", "Ingredient dislikes"] {
+            for page in ["Dietary preferences", "Allergy preferences", "Taste preferences", "Ingredient dislikes", "Kitchen equipment"] {
                 if page == "Allergy preferences" {
                     app.buttons["allergy-answer"].tap()
                     app.buttons["I have allergies"].tap()
@@ -21,6 +21,10 @@ final class CookingFlowTests: XCTestCase {
                 if page == "Ingredient dislikes" {
                     XCTAssertTrue(app.buttons["Choose ingredients"].isHittable)
                     XCTAssertTrue(app.scrollViews.firstMatch.frame.contains(app.buttons["Choose ingredients"].frame))
+                }
+                if page == "Kitchen equipment" {
+                    XCTAssertTrue(app.buttons["Measuring jigger"].isHittable)
+                    XCTAssertTrue(app.scrollViews.firstMatch.frame.contains(app.buttons["Measuring jigger"].frame))
                 }
                 let screenshot = XCTAttachment(screenshot: app.screenshot())
                 screenshot.name = page
@@ -46,9 +50,10 @@ final class CookingFlowTests: XCTestCase {
         }
         // Editing preferences exercises the catalog picker even on a simulator with a saved profile.
         tap(app.buttons["Cooking preferences"], in: app, direction: .down)
-        XCTAssertTrue(app.staticTexts["YOUR PREFERENCES  ·  1 / 6"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["YOUR PREFERENCES  ·  1 / 7"].waitForExistence(timeout: 5), app.debugDescription)
         app.buttons["Get started"].tap()
         XCTAssertTrue(app.buttons["Continue"].waitForExistence(timeout: 5))
+        if !app.buttons["Gluten-free"].isSelected { app.buttons["Gluten-free"].tap() }
         for _ in 0..<3 { app.buttons["Continue"].tap() }
         tap(app.buttons["Choose ingredients"], in: app)
         let ingredientSearch = app.textFields["Search all ingredients"]
@@ -57,7 +62,12 @@ final class CookingFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Beet"].isHittable)
         let ingredientGrid = XCTAttachment(screenshot: app.screenshot())
         ingredientGrid.name = "Ingredient library without scrolling"; ingredientGrid.lifetime = .keepAlways; add(ingredientGrid)
+        // Zucchini sorts beyond the first metadata page; search must keep scanning.
         ingredientSearch.tap()
+        ingredientSearch.typeText("COURGETTE\n")
+        XCTAssertTrue(app.buttons["Zucchini"].waitForExistence(timeout: 10), app.debugDescription)
+        ingredientSearch.tap()
+        ingredientSearch.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 9))
         ingredientSearch.typeText("garlic\n")
         let garlic = app.buttons["Garlic"]
         XCTAssertTrue(garlic.waitForExistence(timeout: 10))
@@ -67,44 +77,46 @@ final class CookingFlowTests: XCTestCase {
         picker.name = "Reusable ingredient picker"; picker.lifetime = .keepAlways; add(picker)
         app.buttons["Done"].tap()
         app.buttons["Continue"].tap()
+        for tool in ["Pots & pans", "Everyday utensils"] {
+            if !app.buttons[tool].isSelected { app.buttons[tool].tap() }
+        }
+        app.buttons["Continue"].tap()
         app.buttons["Let's cook together"].tap()
         tap(app.buttons["View Sunday Spaghetti"], in: app)
-        tap(app.buttons["Start prep flow"], in: app)
+        XCTAssertTrue(app.buttons["ingredient-pasta"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.buttons["ingredient-pasta"].label, "Rice spaghetti")
+        XCTAssertFalse(app.buttons["Start prep flow"].exists)
+        XCTAssertFalse(app.buttons["Review ingredients"].exists)
+        XCTAssertFalse(app.staticTexts["Large pot"].exists)
         let preferences = XCTAttachment(screenshot: app.screenshot())
-        preferences.name = "Ingredient preferences"; preferences.lifetime = .keepAlways; add(preferences)
-        tap(app.buttons["Review ingredients"], in: app)
-        tap(app.buttons["Review details"], in: app)
-        tap(app.buttons["Use Rice spaghetti"], in: app, direction: .down)
-        XCTAssertEqual(app.buttons["Rice spaghetti"].value as? String, "Not checked")
-        tap(app.buttons["Use Dried spaghetti"], in: app)
-        XCTAssertEqual(app.buttons["Dried spaghetti"].value as? String, "Not checked")
+        preferences.name = "Ingredients immediately, with saved substitution"; preferences.lifetime = .keepAlways; add(preferences)
+        tap(app.buttons["ingredient-options-pasta"], in: app)
+        XCTAssertFalse(app.buttons["Use Dried spaghetti"].isEnabled)
         XCTAssertTrue(app.staticTexts["You prefer to avoid garlic."].exists)
-        tap(app.buttons["End cooking session"], in: app, direction: .down)
-        app.buttons["End session and cancel its reminders"].tap()
+        tap(app.buttons["Back to recipes"], in: app, direction: .down)
+        XCTAssertFalse(app.buttons["End cooking session"].exists, "Browsing must not create a cooking session")
         tap(app.buttons["View The Classic Margarita"], in: app)
-        tap(app.buttons["Start prep flow"], in: app)
-        tap(app.buttons["Review ingredients"], in: app)
-        XCTAssertFalse(app.buttons["check-continue"].isEnabled)
-        tap(app.buttons["I have the basics"], in: app)
-        XCTAssertFalse(app.buttons["check-continue"].isEnabled)
-        tap(app.buttons["Clear"], in: app)
-        XCTAssertTrue(app.staticTexts["0 of 4 ingredients selected"].exists)
-        tap(app.buttons["I have the basics"], in: app)
+        XCTAssertTrue(app.buttons["ingredient-tequila"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["start-chef"].isEnabled)
+        tap(app.buttons["confirm-all-ingredients"], in: app)
+        XCTAssertFalse(app.buttons["start-chef"].isEnabled, "Confirmation cannot override unresolved dietary composition")
+        tap(app.buttons["Edit preferences"], in: app)
+        app.buttons["Get started"].tap()
+        app.buttons["Gluten-free"].tap()
+        for _ in 0..<5 { app.buttons["Continue"].tap() }
+        app.buttons["Let's cook together"].tap()
+        XCTAssertTrue(app.buttons["start-chef"].isEnabled)
         XCTAssertFalse(app.buttons["I have these tools"].exists)
-        tap(app.buttons["I've checked product labels"], in: app)
-        XCTAssertTrue(app.buttons["check-continue"].isEnabled)
-        app.swipeDown()
         let check = XCTAttachment(screenshot: app.screenshot())
-        check.name = "Manual ingredient checklist"; check.lifetime = .keepAlways; add(check)
-        tap(app.buttons["check-continue"], in: app)
+        check.name = "One-screen manual ingredient check"; check.lifetime = .keepAlways; add(check)
+        tap(app.buttons["adjust-amounts"], in: app)
         tap(app.buttons["Increase Fresh lime juice"], in: app)
-        XCTAssertTrue(app.staticTexts["17.5 mL"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["start-chef"].isEnabled, "Changing quantities requires rechecking that ingredient")
+        XCTAssertTrue(app.staticTexts["17.5 mL"].firstMatch.waitForExistence(timeout: 2))
+        tap(app.buttons["ingredient-lime"], in: app, direction: .down)
+        XCTAssertTrue(app.buttons["start-chef"].isEnabled)
         let amounts = XCTAttachment(screenshot: app.screenshot())
-        amounts.name = "Adjust amounts"; amounts.lifetime = .keepAlways; add(amounts)
-        tap(app.buttons["amounts-continue"], in: app)
-        XCTAssertTrue(app.staticTexts["Ready to cook"].exists)
-        let ready = XCTAttachment(screenshot: app.screenshot())
-        ready.name = "Ready summary"; ready.lifetime = .keepAlways; add(ready)
+        amounts.name = "Optional inline adjustments"; amounts.lifetime = .keepAlways; add(amounts)
         tap(app.buttons["Cook without voice"], in: app)
         tap(app.buttons["I've started"].firstMatch, in: app, direction: .down)
         tap(app.buttons["complete-measure"], in: app)

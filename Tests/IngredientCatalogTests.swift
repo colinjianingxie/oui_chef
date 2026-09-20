@@ -99,4 +99,47 @@ final class IngredientCatalogTests: XCTestCase {
         let restored = try JSONDecoder().decode(ChefPreferences.self, from: JSONSerialization.data(withJSONObject: legacy))
         XCTAssertNil(restored.dislikedFoodIDs)
     }
+
+    func testPreparationAppliesSupportedPreferencesAndKeepsConflictsVisible() throws {
+        let catalog = try RecipeCatalog.bundled()
+        let now = Date()
+        var preferences = ChefPreferences()
+        preferences.allergies = ["wheat"]
+        preferences.salt = 0
+        var pasta = try CookingSession(recipe: catalog.recipes[0], servings: 4)
+        try pasta.applySavedPreferences(preferences, catalog: catalog, at: now)
+        XCTAssertEqual(pasta.recipe.ingredients[0].foodID, "rice_spaghetti")
+        XCTAssertEqual(pasta.recipe.ingredients.first { $0.id == "sauce_salt" }?.amount, 2)
+        XCTAssertEqual(pasta.sourceRecipe?.ingredients[0].foodID, "pasta")
+        XCTAssertNil(catalog.restriction(for: pasta.recipe, preferences: preferences))
+        XCTAssertFalse(pasta.checksComplete)
+        XCTAssertFalse(pasta.labelsChecked)
+        let revision = pasta.revision
+        try pasta.applySavedPreferences(preferences, catalog: catalog, at: now)
+        XCTAssertEqual(pasta.revision, revision, "Reapplying settings must not compound amounts")
+
+        var bread = try CookingSession(recipe: catalog.recipes[1])
+        try bread.applySavedPreferences(preferences, catalog: catalog, at: now)
+        XCTAssertNotNil(catalog.restriction(for: bread.recipe, preferences: preferences), "No invented flour substitution")
+
+        var drink = try CookingSession(recipe: catalog.recipes[2], servings: 2)
+        preferences.allergies = []; preferences.sweetness = 0
+        try drink.applySavedPreferences(preferences, catalog: catalog, at: now)
+        XCTAssertEqual(drink.recipe.ingredients.first { $0.id == "liqueur" }?.amount, 20)
+        drink.confirmAllIngredients(true, at: now); drink.labelsChecked = true
+        try drink.completePreparation(at: now); try drink.begin("measure", at: now)
+        preferences.sweetness = 1
+        try drink.applySavedPreferences(preferences, catalog: catalog, at: now)
+        XCTAssertEqual(drink.recipe.ingredients.first { $0.id == "liqueur" }?.amount, 20, "Never change an in-progress batch from settings")
+
+        let salt = pasta.recipe.ingredients.first { $0.foodID == "salt" }!
+        XCTAssertTrue(catalog.isPantryBasic(salt, preferences: preferences))
+        preferences.dislikedFoodIDs = ["salt"]
+        XCTAssertFalse(catalog.isPantryBasic(salt, preferences: preferences), "A flagged basic stays in the main list")
+        XCTAssertFalse(catalog.isPantryBasic(pasta.recipe.ingredients[0], preferences: preferences))
+        preferences.equipment = ["Pots & pans", "Everyday utensils"]
+        XCTAssertEqual(preferences.toolsToMention(for: pasta.recipe), [])
+        preferences.equipment.formUnion(["Cocktail shaker", "Measuring jigger"])
+        XCTAssertEqual(preferences.toolsToMention(for: drink.recipe), ["Cocktail shaker", "Measuring jigger", "Strainer"])
+    }
 }

@@ -4,39 +4,16 @@
 <dict>
 	<key>CFBundleDisplayName</key>
 	<string>Oui Chef</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>OuiChefVoiceURL</key>
-	<string>wss://oui-chef-voice-172500657212.us-east1.run.app/voice</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Talk with your chef while cooking. Cloud voice sends audio through Oui Chef to xAI while the microphone is on.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Turn your spoken cooking commands into text. Apple may process speech when on-device recognition is unavailable.</string>
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-	</dict>
-	<key>UILaunchScreen</key>
-	<dict/>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -49,15 +26,40 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Show your chef an ingredient, or save a picture of your finished dish in your private cooking album.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Talk with your chef while cooking. Cloud voice sends audio through Oui Chef to xAI while the microphone is on.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Turn your spoken cooking commands into text. Apple may process speech when on-device recognition is unavailable.</string>
 	<key>OuiChefAppleSignInEnabled</key>
 	<true/>
+	<key>OuiChefSharedKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)com.xie.ouichef.shared</string>
+	<key>OuiChefVoiceURL</key>
+	<string>wss://oui-chef-voice-172500657212.us-east1.run.app/voice</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Take a picture of your finished dish to save in your private cooking history.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
 </dict>
 </plist>

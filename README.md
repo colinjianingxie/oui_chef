@@ -1,5 +1,10 @@
 # Oui Chef
 
+## Companion redesign
+
+The app now opens into the private cookbook, recipe import, guided cooking, and cooking album flow. Equipment is optional. See [Companion redesign](docs/COMPANION_REDESIGN.md) for the import pipeline, Firebase model, beta limits, deployment requirements, and verification commands.
+
+
 A native iPhone cooking companion with three normalized recipes, persistent cooking state, timer reminders, and an xAI voice integration. Cooking works locally; connected voice uses a restricted development backend. The xAI key is connected and a live tool-to-spoken-answer test passes. Cloud voice is available to signed-in accounts, with up to three independent sessions at once; guests can use manual cooking and local voice.
 
 ## Run
@@ -12,13 +17,13 @@ The iOS app uses Apple frameworks, Firebase Core/Auth/Firestore, and Google Sign
 
 - Firestore recipe sets, classified recipe cards, reusable ingredients, cursor pagination, private drafts, immutable publication, and verified catalog-admin access. See [catalog operations](docs/FIRESTORE_CATALOG.md).
 
-- Cream/sage SwiftUI interface based on `designs/`: onboarding, discovery, recipe detail, preparation, cooking, bookmarks, and history.
+- Cream/sage SwiftUI interface based on `designs/`: onboarding, discovery, one-screen ingredient preparation, cooking, bookmarks, and history.
 - Preferences use short pages and compact choice grids to fit without scrolling at the default text size on iPhone 14; larger accessibility text retains a scrolling fallback.
 - Free starter recipes attributed to **Chef Margarita**, in the free Kitchen Essentials recipe set; no subscription is required.
 - Optional Apple, email/password, Google, and phone account screens, account linking, password reset, verification, sign-out, and account deletion.
 - Separate local preferences/history for each signed-in account. The first sign-in adopts a guest kitchen only if the account has no saved kitchen on this iPhone.
 - Three JSON recipe graphs: spaghetti, yeasted bread, margarita. Stable ingredient/state IDs, dependencies, equipment scheduling, actions, waits, and checkpoints.
-- Manual ingredient and product-label confirmation before starting; kitchen items are recommendations. Preferences apply to each ingredient and its constituents, with recipe-specific substitutions and taste-ratio previews.
+- Manual ingredient and product-label confirmation on one screen before starting. Saved preferences apply approved substitutions and supported taste ratios automatically; pantry basics are collapsed and specialized equipment remains visible. Everyday tools selected during signup are omitted from preparation.
 - A shared catalog of 66 foods in 31 hierarchical categories, ingredient search, saved dislikes, and sprite asset slots. See the [ingredient catalog and growth plan](docs/INGREDIENT_CATALOG.md).
 - Independent persisted timer deadlines, local notification reminders, readiness confirmation, and checkpoint rechecks. First and second proof remain separate.
 - Ratio previews with fixed-base arithmetic, supported ranges, confirmation, stale-proposal rejection, and protection for ingredients already used. Initial ratio editing is available during preparation.

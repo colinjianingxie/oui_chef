@@ -1,8 +1,10 @@
-title: Oui Chef voice ledger
-description: Read tester enrollment and transact voice usage; no deletion or authentication administration.
+title: Oui Chef companion data
+description: Manage private recipes, cooking history and AI usage; no authentication administration.
 stage: GA
 includedPermissions:
   - datastore.databases.get
   - datastore.entities.get
+  - datastore.entities.list
   - datastore.entities.create
   - datastore.entities.update
+  - datastore.entities.delete

@@ -11,7 +11,9 @@ struct CookingView: View {
         if let session = store.session {
             Group {
                 if !session.ready {
-                    IngredientCheckView(store: store, onEnd: { showEnd = true })
+                    IngredientCheckView(store: store, session: session, update: store.updateSession,
+                                        onStart: { _ = store.startCooking(session, voice: $0) },
+                                        onClose: { showEnd = true }, closeLabel: "End cooking session")
                 } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 23) {

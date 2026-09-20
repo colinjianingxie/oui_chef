@@ -190,6 +190,7 @@ final class ChefStore {
                 next.session?.preparationCompletedAt = nil
             }
             if next.preferences != preferences { next.session?.record("preferences_changed", at: Date()) }
+            if let catalog { try next.session?.applySavedPreferences(preferences, catalog: catalog, at: Date()) }
             next.preferences = preferences
             if !preferences.analyticsEnabled { next.usage = [] }
         }
@@ -204,16 +205,54 @@ final class ChefStore {
         return catalog.restriction(for: recipe, preferences: preferences)
     }
 
-    func choose(_ recipe: Recipe, servings: Int) {
-        if commit({ next in
-            let replacement = try CookingSession(recipe: recipe, servings: servings)
-            next.activate(replacement)
-            next.session?.ingredientLibrary = libraryForRecipe(recipe)
-            if next.preferences.analyticsEnabled { next.usage.append(UsageRecord(name: "recipe_selected", recipeID: recipe.id)) }
-        }) {
-            resetVoiceActions(); syncNotifications(); syncDishes()
-            chefMessage = "Review your preferences and ingredients on screen, then we’ll cook \(recipe.title.lowercased()) together."
+    func preparation(for recipe: Recipe, servings: Int) throws -> CookingSession {
+        guard let catalog else { throw CookingError.invalid("The ingredient library is unavailable.") }
+        var prepared = try CookingSession(recipe: recipe, servings: servings)
+        try prepared.applySavedPreferences(preferences, catalog: catalog, at: Date())
+        prepared.ingredientLibrary = libraryForRecipe(recipe)
+        for ingredient in prepared.recipe.ingredients where catalog.isPantryBasic(ingredient, preferences: preferences) {
+            try prepared.confirmIngredient(ingredient.id, at: Date())
         }
+        return prepared
+    }
+
+    @discardableResult
+    func activatePrepared(_ prepared: CookingSession) -> Bool {
+        let saved = commit { next in
+            next.activate(prepared)
+            if next.preferences.analyticsEnabled { next.usage.append(UsageRecord(name: "recipe_selected", recipeID: prepared.recipe.id)) }
+        }
+        if saved {
+            resetVoiceActions(); syncNotifications(); syncDishes()
+            chefMessage = prepared.ready ? "Let's cook \(prepared.recipe.title.lowercased()) together." : "Your preferences are applied. Confirm your ingredients on screen, then we’ll cook together."
+        }
+        return saved
+    }
+
+    func choose(_ recipe: Recipe, servings: Int) {
+        do { activatePrepared(try preparation(for: recipe, servings: servings)) }
+        catch { self.error = error.localizedDescription }
+    }
+
+    @discardableResult
+    func startCooking(_ prepared: CookingSession, voice useVoice: Bool) -> Bool {
+        do {
+            if let restriction = restriction(for: prepared.recipe) { throw CookingError.invalid(restriction) }
+            var ready = prepared
+            // The Start button explicitly confirms the displayed amounts and product-label check.
+            ready.labelsChecked = true
+            try ready.completePreparation(at: Date())
+            let saved: Bool
+            if session?.id == ready.id {
+                saved = updateSession { current in
+                    guard current.revision == prepared.revision else { throw CookingError.invalid("The recipe changed. Check the updated ingredients.") }
+                    current = ready
+                }
+            } else { saved = activatePrepared(ready) }
+            guard saved else { return false }
+            if useVoice { openVoice() } else { voice.stop(); showingVoice = false }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     func endSession() {
         guard var current = session else { return }
@@ -309,6 +348,7 @@ final class ChefStore {
                 },
                 "pendingRatioProposalID": voiceProposal?.id.uuidString ?? "none",
                 "manualPreparationRequired": session.map { !$0.ready } ?? false,
+                "equipmentToMention": session.map { preferences.toolsToMention(for: $0.recipe) } ?? [],
                 "pendingRecoveryProposal": recoveryProposal.map(object) ?? NSNull(),
                 "parkedTimers": archive.history.filter { !$0.finished && !$0.timers.isEmpty }.map { ["sessionID": $0.id.uuidString, "title": $0.recipe.title, "timers": object($0.timers)] }]
     }
@@ -333,7 +373,7 @@ final class ChefStore {
                 let generation = catalogGeneration, connection = voice.connectionID
                 let term = try request.requiredTarget()
                 let cards: [RecipeSummary]
-                if catalogOffline { cards = try RecipeCatalog.bundled().recipes.filter { ($0.title + " " + $0.tags.joined(separator: " ")).localizedCaseInsensitiveContains(term) }.map(RecipeSummary.init) }
+                if catalogOffline { cards = try RecipeCatalog.bundled().recipes.map(RecipeSummary.init).filter { $0.matches(term) } }
                 else { cards = try await remoteCatalog.cards(search: term).0 }
                 guard generation == catalogGeneration, connection == voice.connectionID else { throw CancellationError() }
                 voiceSearchResults = cards
@@ -348,7 +388,7 @@ final class ChefStore {
                 choose(recipe, servings: Int(value))
                 guard session?.recipe.id == recipe.id, session?.id.uuidString != request.sessionID else { throw CookingError.invalid(error ?? "Could not select this recipe.") }
                 selectedRecipeID = nil
-                detail = "Recipe selected. The manual ingredient checklist is now on screen. The user must finish it and tap Cook with Oui Chef before starting a task."
+                detail = "Recipe selected with saved preferences already applied. The ingredient checklist is on screen. The user must confirm ingredients and tap Start Chef AI before starting a task. Pantry basics are shown as assumed until the user confirms preparation."
             case .confirm_ingredient, .confirm_tool, .confirm_labels:
                 throw CookingError.invalid("Finish the manual checklist on screen before cooking.")
             case .start_node:
@@ -572,7 +612,7 @@ extension ChefStore {
                 cards = result.0; cursor = result.1
             }
             guard generation == catalogGeneration, request == queryGeneration, !Task.isCancelled else { return }
-            recipeCards += saved ? cards.filter { (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)) && (classification == nil || $0.discoveryTags.contains(classification!)) } : cards
+            recipeCards += saved ? cards.filter { $0.matches(search) && (classification == nil || $0.discoveryTags.contains(classification!)) } : cards
             savedOffset += savedIDs.count
             recipeCursor = cursor; hasMoreRecipes = saved ? savedOffset < archive.savedRecipes.count : cursor != nil
             catalogOffline = false; catalogNotice = nil
@@ -584,7 +624,7 @@ extension ChefStore {
             if !more && !previewDrafts && [FirestoreErrorCode.unavailable.rawValue, FirestoreErrorCode.deadlineExceeded.rawValue].contains(code),
                let bundle = try? RecipeCatalog.bundled() {
                 recipeCards = bundle.recipes.filter { recipe in
-                    (search.isEmpty || (recipe.title + " " + recipe.tags.joined(separator: " ")).localizedCaseInsensitiveContains(search)) &&
+                    RecipeSummary(recipe).matches(search) &&
                     (classification == nil || recipe.tags.map { $0.lowercased() }.contains(classification!)) &&
                     (selectedSetID == nil || selectedSetID == recipe.recipeSetID)
                 }.map(RecipeSummary.init)

@@ -71,6 +71,11 @@ struct RecipeSummary: Codable, Identifiable {
     var hasDraft: Bool
     var baseServings: Int
     var maximumServings: Int
+
+    func matches(_ query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty || ([title, subtitle, style.rawValue] + discoveryTags).contains { $0.localizedStandardContains(query) }
+    }
 }
 
 struct CatalogTag: Codable, Identifiable {

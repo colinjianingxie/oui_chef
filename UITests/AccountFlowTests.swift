@@ -44,6 +44,11 @@ final class AccountFlowTests: XCTestCase {
         if app.buttons["Get started"].exists {
             app.buttons["Get started"].tap()
             for _ in 0..<4 { app.buttons["Continue"].tap() }
+            XCTAssertTrue(app.buttons["Measuring jigger"].isHittable)
+            XCTAssertTrue(app.scrollViews.firstMatch.frame.contains(app.buttons["Measuring jigger"].frame))
+            let equipment = XCTAttachment(screenshot: app.screenshot())
+            equipment.name = "Kitchen equipment without scrolling"; equipment.lifetime = .keepAlways; add(equipment)
+            app.buttons["Continue"].tap()
             app.buttons["Let's cook together"].tap()
         }
         XCTAssertTrue(app.staticTexts["Recipe sets"].waitForExistence(timeout: 10))

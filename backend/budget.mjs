@@ -58,7 +58,7 @@ export async function reserveSession(db, identity, id) {
     // activeUntil also prevents the previous revision from reserving during a rollout.
     tx.set(budget, { allocatedCents: reserve(state.allocatedCents ?? 0), activeSessions: active,
       activeID: null, activeUntil: Math.max(...Object.values(active)) });
-    tx.create(session, { uid, provider: 'xai', status: 'reserved', reservedCents: policy.reservationCents,
+    tx.create(session, { uid, provider: 'xai', model: 'grok-voice-think-fast-2.0', promptVersion: 'companion-2', status: 'reserved', reservedCents: policy.reservationCents,
       createdAt: new Date(), expiresAt: new Date(Date.now() + 30 * 86400000) });
   });
 }

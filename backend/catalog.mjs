@@ -8,25 +8,25 @@ export function canonicalTags(values) {
   return result;
 }
 
+export function canonicalAccess(value) {
+  if (value?.kind === 'free') return { kind: 'free' };
+  if (value?.kind === 'subscription' && typeof value.productID === 'string' && /^[A-Za-z0-9._-]{1,200}$/.test(value.productID)) {
+    return { kind: 'subscription', productID: value.productID };
+  }
+  throw new Error('Invalid recipe-set access');
+}
+
 export const catalogProject = 'oui-chef-dev-20260914';
 export const validID = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 export const draftRevision = draft => createHash('sha256').update(JSON.stringify(canonical([draft.recipe, draft.classificationIDs ?? draft.recipe.tags]))).digest('hex');
-// Prefix tokens keep queries bounded. Multiword prefixes and individual words are supported.
-export function searchTokens(names) {
-  return [...new Set(names.flatMap(name => {
-    const text = name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim();
-    return [text, ...text.split(/\s+/)].flatMap(word => Array.from({ length: Math.min(word.length, 80) }, (_, i) => word.slice(0, i + 1)));
-  }))];
-}
-export function cardFor(recipe, classificationIDs, status, hasDraft) {
-  classificationIDs = canonicalTags(classificationIDs ?? recipe.tags);
+export function cardFor(recipe, tags, status, hasDraft) {
+  tags = canonicalTags(tags ?? recipe.tags);
   const { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID } = recipe;
-  return { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID, classificationIDs, tags: classificationIDs,
+  return { id, title, subtitle, style, minutes, baseServings, maximumServings, chefID, chefName, recipeSetID, tags,
     ...(recipe.totalMinutes == null ? {} : { totalMinutes: recipe.totalMinutes }),
     ...(recipe.maximumMinutes == null ? {} : { maximumMinutes: recipe.maximumMinutes }),
-    status, hasDraft, publishedVersion: status === 'published' ? recipe.version : null,
-    searchTokens: searchTokens([title, subtitle, style, ...recipe.tags, ...classificationIDs]) };
+    status, hasDraft, publishedVersion: status === 'published' ? recipe.version : null };
 }
 export async function publishRecipe(db, identity, recipeID, revision) {
   if (!validID(recipeID) || typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) throw new Error('Invalid recipe or draft revision.');
@@ -52,6 +52,7 @@ export async function publishRecipe(db, identity, recipeID, revision) {
     const published = { ...recipe, tags: labels, chefName: chefDoc.data().name, version };
     tx.create(ref.collection('versions').doc(String(version)), { recipe: published, published: true, publishedAt: new Date() });
     tx.set(ref, cardFor(published, labels, 'published', false));
+    tx.delete(draftRef);
     return { recipeID, version };
   });
 }

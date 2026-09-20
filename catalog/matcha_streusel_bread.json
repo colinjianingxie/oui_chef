@@ -1,0 +1,593 @@
+{
+  "recipe": {
+    "id": "matcha_streusel_bread",
+    "version": 2,
+    "title": "Matcha Streusel Bread",
+    "subtitle": "Eight soft, matcha-filled braided wreath rolls.",
+    "style": "bread",
+    "tags": [
+      "bread",
+      "baking"
+    ],
+    "minutes": "4–5 hr",
+    "activeMinutes": 65,
+    "baseServings": 8,
+    "maximumServings": 8,
+    "yieldLabel": "rolls",
+    "totalMinutes": 240,
+    "maximumMinutes": 300,
+    "source": "Video ingredients, yield, oven temperature and bake time: https://www.youtube.com/watch?v=W_-D8PZwtSY ; English shaping and proofing cross-check: https://www.tumgik.com/snowppie . Estimated: 5 g oil for the bowl, 20 g sliced almonds, 15 minutes cooling; proof and knead times are guides, so follow the texture and volume checks.",
+    "chefID": "chef_margarita",
+    "chefName": "Chef Margarita",
+    "recipeSetID": "baking_specials",
+    "ratios": [],
+    "recoveryOptions": [],
+    "ingredients": [
+      {
+        "id": "bread_flour",
+        "foodID": "flour",
+        "name": "Bread flour, for dough",
+        "amount": 415,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_yeast",
+        "foodID": "yeast",
+        "name": "Instant yeast",
+        "amount": 5,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_milk_powder",
+        "foodID": "milk_powder",
+        "name": "Milk powder, for dough",
+        "amount": 15,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_sugar",
+        "foodID": "sugar",
+        "name": "Sugar, for dough",
+        "amount": 65,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_salt",
+        "foodID": "salt",
+        "name": "Salt, for dough",
+        "amount": 4,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_egg",
+        "foodID": "egg",
+        "name": "Beaten egg, for dough",
+        "amount": 50,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_milk",
+        "foodID": "milk",
+        "name": "Milk, for dough",
+        "amount": 55,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_water",
+        "foodID": "water",
+        "name": "Water, for dough",
+        "amount": 165,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "dough_butter",
+        "foodID": "butter",
+        "name": "Unsalted butter, softened and cubed, for dough",
+        "amount": 45,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "bowl_oil",
+        "foodID": "oil",
+        "name": "Olive oil, to grease bowl (estimate)",
+        "amount": 5,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_butter",
+        "foodID": "butter",
+        "name": "Unsalted butter, softened, for filling",
+        "amount": 105,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_sugar",
+        "foodID": "sugar",
+        "name": "Caster sugar, for filling",
+        "amount": 40,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_egg",
+        "foodID": "egg",
+        "name": "Beaten egg, for filling",
+        "amount": 30,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_flour",
+        "foodID": "flour",
+        "name": "Cake flour, for filling",
+        "amount": 50,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_milk_powder",
+        "foodID": "milk_powder",
+        "name": "Milk powder, for filling",
+        "amount": 70,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "filling_matcha",
+        "foodID": "matcha",
+        "name": "Matcha powder, for filling",
+        "amount": 5,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "wash_egg",
+        "foodID": "egg",
+        "name": "Reserved beaten egg, for wash",
+        "amount": 20,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "wash_milk",
+        "foodID": "milk",
+        "name": "Milk, for egg wash (about 1 tbsp)",
+        "amount": 15,
+        "unit": "g",
+        "scales": true
+      },
+      {
+        "id": "almonds",
+        "foodID": "almond",
+        "name": "Sliced almonds, for topping (estimate)",
+        "amount": 20,
+        "unit": "g",
+        "scales": true
+      }
+    ],
+    "tools": [
+      "Mixing bowl",
+      "Stand mixer",
+      "Baking tray",
+      "Rolling pin",
+      "Knife",
+      "Oven",
+      "Cooling rack"
+    ],
+    "nodes": [
+      {
+        "id": "mix",
+        "kind": "action",
+        "title": "Mix the dough",
+        "instruction": "Mix the bread flour, yeast, sugar, salt, and milk powder. Add 50 g beaten egg, 55 g milk, and 165 g water (270 g wet ingredients total); adjust the water slightly if your egg weighs differently. Mix until no dry flour remains.",
+        "criterion": "Is the dough evenly combined?",
+        "dependsOn": [],
+        "inputs": [
+          "bread_flour",
+          "dough_yeast",
+          "dough_sugar",
+          "dough_salt",
+          "dough_milk_powder",
+          "dough_egg",
+          "dough_milk",
+          "dough_water"
+        ],
+        "outputs": [
+          "mixed_dough"
+        ],
+        "tools": [
+          "Mixing bowl"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 120
+      },
+      {
+        "id": "initial_knead",
+        "kind": "action",
+        "title": "Knead briefly",
+        "instruction": "Knead the dough for about 10 minutes by hand or with a stand mixer. It need not pass the windowpane test yet.",
+        "criterion": "Has the dough become more cohesive?",
+        "dependsOn": [
+          "mix"
+        ],
+        "inputs": [
+          "mixed_dough"
+        ],
+        "outputs": [
+          "rough_dough"
+        ],
+        "tools": [
+          "Stand mixer"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 600
+      },
+      {
+        "id": "chill",
+        "kind": "wait",
+        "title": "Chill the dough",
+        "instruction": "Cover and refrigerate the dough for 20 minutes to relax the gluten. Start the timer once it is in the fridge.",
+        "criterion": "Has the dough rested for 20 minutes?",
+        "dependsOn": [
+          "initial_knead"
+        ],
+        "inputs": [
+          "rough_dough"
+        ],
+        "outputs": [
+          "rested_dough"
+        ],
+        "tools": [],
+        "durationSeconds": 1200,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "develop_gluten",
+        "kind": "action",
+        "title": "Develop the gluten",
+        "instruction": "Knead again until a stretched piece forms a thin membrane with slightly jagged edges.",
+        "criterion": "Does a small piece stretch thinly before tearing?",
+        "dependsOn": [
+          "chill"
+        ],
+        "inputs": [
+          "rested_dough"
+        ],
+        "outputs": [
+          "developed_dough"
+        ],
+        "tools": [
+          "Stand mixer"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 300
+      },
+      {
+        "id": "add_butter",
+        "kind": "action",
+        "title": "Knead in butter",
+        "instruction": "Add the 45 g cubed butter gradually and knead until fully absorbed. Stretch a small piece; the membrane should now have a smooth edge. Shape into a taut ball.",
+        "criterion": "Is the butter incorporated and the dough smooth and elastic?",
+        "dependsOn": [
+          "develop_gluten"
+        ],
+        "inputs": [
+          "developed_dough",
+          "dough_butter"
+        ],
+        "outputs": [
+          "smooth_dough"
+        ],
+        "tools": [
+          "Stand mixer"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 600
+      },
+      {
+        "id": "first_proof",
+        "kind": "wait",
+        "title": "First rise",
+        "instruction": "Lightly oil a bowl, put the taut dough ball inside, and cover. Proof in a warm place for about 1 hour; start the timer when covered.",
+        "criterion": "Has the dough doubled in size?",
+        "dependsOn": [
+          "add_butter"
+        ],
+        "inputs": [
+          "smooth_dough",
+          "bowl_oil"
+        ],
+        "outputs": [
+          "risen_dough"
+        ],
+        "tools": [
+          "Mixing bowl"
+        ],
+        "durationSeconds": 3600,
+        "recheckSeconds": 600,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "divide",
+        "kind": "action",
+        "title": "Divide into eight",
+        "instruction": "Gently press out the air. Divide into eight equal pieces, round each into a ball, and cover.",
+        "criterion": "Are eight covered dough balls ready to rest?",
+        "dependsOn": [
+          "first_proof"
+        ],
+        "inputs": [
+          "risen_dough"
+        ],
+        "outputs": [
+          "dough_balls"
+        ],
+        "tools": [],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 180
+      },
+      {
+        "id": "bench_rest",
+        "kind": "wait",
+        "title": "Rest the dough balls",
+        "instruction": "Leave the covered balls at room temperature for 25–30 minutes so they roll out without springing back.",
+        "criterion": "Do the dough balls roll out easily?",
+        "dependsOn": [
+          "divide"
+        ],
+        "inputs": [
+          "dough_balls"
+        ],
+        "outputs": [
+          "relaxed_balls"
+        ],
+        "tools": [],
+        "durationSeconds": 1800,
+        "recheckSeconds": 300,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "make_filling",
+        "kind": "action",
+        "title": "Mix the matcha filling",
+        "instruction": "Cream the softened butter with caster sugar until smooth. Add 30 g beaten egg in two additions, mixing until no liquid remains after each. Sift in cake flour and milk powder, mix, then sift in the matcha and mix evenly.",
+        "criterion": "Is the filling smooth and evenly green?",
+        "dependsOn": [
+          "divide"
+        ],
+        "inputs": [
+          "filling_butter",
+          "filling_sugar",
+          "filling_egg",
+          "filling_flour",
+          "filling_milk_powder",
+          "filling_matcha"
+        ],
+        "outputs": [
+          "matcha_filling"
+        ],
+        "tools": [
+          "Mixing bowl"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 600
+      },
+      {
+        "id": "fill",
+        "kind": "action",
+        "title": "Fill and roll",
+        "instruction": "Roll each dough ball into a roughly 15 × 20 cm rectangle. Spread one eighth of the filling over each, leaving the sealing edge bare. Roll up tightly from the opposite edge, pinch closed, and cover.",
+        "criterion": "Are all eight filled rolls sealed and covered?",
+        "dependsOn": [
+          "bench_rest",
+          "make_filling"
+        ],
+        "inputs": [
+          "relaxed_balls",
+          "matcha_filling"
+        ],
+        "outputs": [
+          "filled_rolls"
+        ],
+        "tools": [
+          "Rolling pin"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 600
+      },
+      {
+        "id": "short_rest",
+        "kind": "wait",
+        "title": "Relax the filled rolls",
+        "instruction": "Rest the covered rolls for 5–10 minutes before lengthening them.",
+        "criterion": "Are the rolls relaxed enough to lengthen gently?",
+        "dependsOn": [
+          "fill"
+        ],
+        "inputs": [
+          "filled_rolls"
+        ],
+        "outputs": [
+          "relaxed_rolls"
+        ],
+        "tools": [],
+        "durationSeconds": 600,
+        "recheckSeconds": 300,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "braid",
+        "kind": "action",
+        "title": "Shape eight wreaths",
+        "instruction": "Gently roll each filled log to about 30 cm long. Slice it lengthwise down the middle, exposing the filling. Cross the two strands over each other with cut sides up, then join and pinch the ends into a wreath. Set on a lined baking tray.",
+        "criterion": "Are there eight sealed wreaths on the tray?",
+        "dependsOn": [
+          "short_rest"
+        ],
+        "inputs": [
+          "relaxed_rolls"
+        ],
+        "outputs": [
+          "shaped_wreaths"
+        ],
+        "tools": [
+          "Knife",
+          "Baking tray"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 900
+      },
+      {
+        "id": "final_proof",
+        "kind": "wait",
+        "title": "Final rise",
+        "instruction": "Cover the wreaths and proof in a warm place outside the oven for about 45 minutes. A bowl of hot water nearby can provide warmth. Start the timer once covered.",
+        "criterion": "Have the wreaths expanded to about 1½ times their shaped size?",
+        "dependsOn": [
+          "braid"
+        ],
+        "inputs": [
+          "shaped_wreaths"
+        ],
+        "outputs": [
+          "proofed_wreaths"
+        ],
+        "tools": [
+          "Baking tray"
+        ],
+        "durationSeconds": 2700,
+        "recheckSeconds": 600,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "preheat",
+        "kind": "action",
+        "title": "Preheat oven",
+        "instruction": "About 30 minutes before baking, set the oven to 190°C / 375°F. Keep the rising wreaths outside the oven.",
+        "criterion": "Has the oven reached 190°C / 375°F?",
+        "dependsOn": [
+          "braid"
+        ],
+        "inputs": [],
+        "outputs": [
+          "hot_oven"
+        ],
+        "tools": [
+          "Oven"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 600
+      },
+      {
+        "id": "egg_wash",
+        "kind": "action",
+        "title": "Finish the tops",
+        "instruction": "Mix the reserved 20 g beaten egg with 15 g milk. Brush the wreaths lightly and scatter sliced almonds over them.",
+        "criterion": "Are all eight wreaths brushed and topped?",
+        "dependsOn": [
+          "final_proof",
+          "preheat"
+        ],
+        "inputs": [
+          "proofed_wreaths",
+          "wash_egg",
+          "wash_milk",
+          "almonds"
+        ],
+        "outputs": [
+          "ready_wreaths"
+        ],
+        "tools": [
+          "Baking tray"
+        ],
+        "durationSeconds": null,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": 180
+      },
+      {
+        "id": "bake",
+        "kind": "wait",
+        "title": "Bake the wreaths",
+        "instruction": "Bake on the middle rack at 190°C / 375°F for 12–14 minutes. Start the timer when the tray goes in; check near the end so the matcha filling does not scorch.",
+        "criterion": "Are the tops lightly golden and the dough baked through?",
+        "dependsOn": [
+          "egg_wash"
+        ],
+        "inputs": [
+          "ready_wreaths",
+          "hot_oven"
+        ],
+        "outputs": [
+          "baked_wreaths"
+        ],
+        "tools": [
+          "Oven",
+          "Baking tray"
+        ],
+        "durationSeconds": 780,
+        "recheckSeconds": 120,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      },
+      {
+        "id": "cool",
+        "kind": "wait",
+        "title": "Cool before serving",
+        "instruction": "Transfer the wreaths to a cooling rack. Let them cool for about 15 minutes before serving.",
+        "criterion": "Have the rolls cooled enough to handle?",
+        "dependsOn": [
+          "bake"
+        ],
+        "inputs": [
+          "baked_wreaths"
+        ],
+        "outputs": [
+          "finished_rolls"
+        ],
+        "tools": [
+          "Cooling rack"
+        ],
+        "durationSeconds": 900,
+        "recheckSeconds": null,
+        "coachingCues": [],
+        "checkAfterSeconds": null
+      }
+    ]
+  }
+}

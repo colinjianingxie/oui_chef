@@ -17,17 +17,6 @@
       "title": "Kitchen Essentials",
       "summary": "Pasta, your first loaf, and a classic margarita. Three free recipes to get you cooking.",
       "status": "published",
-      "classificationIDs": [
-        "essentials",
-        "beginner"
-      ],
-      "price": {
-        "kind": "free",
-        "amountMinor": 0,
-        "currency": "USD",
-        "interval": null,
-        "productID": null
-      },
       "tags": [
         "essentials",
         "beginner"
@@ -35,150 +24,23 @@
       "access": {
         "kind": "free"
       }
+    },
+    {
+      "id": "baking_specials",
+      "chefID": "chef_margarita",
+      "chefName": "Chef Margarita",
+      "title": "Baking Specials",
+      "summary": "Sweet breads and special bakes from Chef Margarita.",
+      "status": "published",
+      "tags": [
+        "baking",
+        "bread"
+      ],
+      "access": {
+        "kind": "free"
+      }
     }
   ],
-  "classifications": [
-    {
-      "id": "italian",
-      "name": "Italian",
-      "kind": "cuisine",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "mexican",
-      "name": "Mexican",
-      "kind": "cuisine",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "dinner",
-      "name": "Dinner",
-      "kind": "meal",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "drinks",
-      "name": "Drinks",
-      "kind": "dish",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "bread",
-      "name": "Bread",
-      "kind": "dish",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "pasta",
-      "name": "Pasta",
-      "kind": "dish",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "cocktails",
-      "name": "Cocktails",
-      "kind": "dish",
-      "parentID": "drinks",
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "baking",
-      "name": "Baking",
-      "kind": "technique",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "mixology",
-      "name": "Mixology",
-      "kind": "technique",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "beginner",
-      "name": "Beginner",
-      "kind": "skill",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "weeknight",
-      "name": "Weeknight",
-      "kind": "occasion",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    },
-    {
-      "id": "essentials",
-      "name": "Kitchen essentials",
-      "kind": "collection",
-      "parentID": null,
-      "appliesTo": [
-        "recipe",
-        "recipeSet"
-      ]
-    }
-  ],
-  "recipeClassifications": {
-    "spaghetti": [
-      "italian",
-      "dinner",
-      "pasta",
-      "beginner",
-      "weeknight"
-    ],
-    "bread": [
-      "bread",
-      "baking",
-      "beginner"
-    ],
-    "margarita": [
-      "mexican",
-      "cocktails",
-      "mixology",
-      "beginner"
-    ]
-  },
   "adminEmails": [
     "colinjianingxie@gmail.com",
     "wonmargarita@gmail.com"

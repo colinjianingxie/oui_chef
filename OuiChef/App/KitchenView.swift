@@ -34,10 +34,10 @@ struct KitchenView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { Text("Oui Chef").font(Theme.serif(24)) }
                 ToolbarItem(placement: .topBarLeading) {
-                    Image(systemName: "leaf").foregroundStyle(Theme.green).accessibilityHidden(true)
+                    if store.session == nil { Image(systemName: "leaf").foregroundStyle(Theme.green).accessibilityHidden(true) }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3") }
+                    Button { showSettings = true } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44) }
                         .accessibilityLabel("Cooking preferences")
                 }
             }
@@ -241,71 +241,55 @@ private struct VoiceOriginKey: PreferenceKey {
 }
 
 struct RecipeDetailView: View {
-    @Bindable var store: ChefStore
+    let store: ChefStore
     let recipe: Recipe
-    @State private var servings = 1
+    @State private var preparation: CookingSession?
+    @State private var preparationError: String?
     @State private var confirmPublish = false
     @State private var publishing = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    RecipeArtwork(style: recipe.style).frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 24))
-                    Text(recipe.title).font(Theme.serif(36))
-                    Text((recipe.chefName ?? "Chef Margarita") + (store.draftRevision != nil ? " · Private draft" : "")).font(.subheadline).foregroundStyle(Theme.green)
-                    Text(recipe.subtitle).foregroundStyle(.secondary)
-                    if store.catalogAdmin && store.draftRevision != nil {
-                        Button(publishing ? "Publishing…" : "Publish this draft") { confirmPublish = true }.disabled(publishing)
-                            .confirmationDialog("Publish this recipe for everyone with access to its recipe set?", isPresented: $confirmPublish, titleVisibility: .visible) {
-                                Button("Publish recipe") { Task { publishing = true; await store.publishSelectedDraft(); publishing = false } }
-                            }
-                    }
-                    HStack(spacing: 20) { Label(recipe.timeLabel, systemImage: "clock"); Label(recipe.style.name, systemImage: "leaf") }.font(.caption)
-                    Stepper("\(recipe.yieldLabel.capitalized): \(servings)", value: $servings, in: 1...recipe.maximumServings)
-                    Text("Before we cook").font(Theme.serif(28))
-                    Text("A quick check for a smoother cooking experience.").font(.subheadline).foregroundStyle(.secondary)
-                    prepCard("Preferences", detail: "Applied to the ingredients you use", symbol: "heart")
-                    prepCard("Ingredients", detail: "Grouped for an easy check", symbol: "carrot")
-                    prepCard("Kitchen items", detail: "Helpful recommendations · no verification", symbol: "fork.knife")
-                    DisclosureGroup("What you’ll need") {
-                        ForEach(recipe.ingredients) { ingredient in
-                            HStack {
-                                Text(ingredient.name)
-                                Spacer()
-                                Text((ingredient.amount * (ingredient.scales ? Double(servings) / Double(recipe.baseServings) : 1)).formatted(.number.precision(.fractionLength(0...1))) + " " + ingredient.unit)
-                                    .foregroundStyle(.secondary)
-                            }.font(.subheadline).padding(.vertical, 5)
-                        }
-                    }.kitchenCard()
-                    if let restriction = store.restriction(for: recipe) {
-                        Label(restriction, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(Theme.orange).kitchenCard()
-                    }
-                    DisclosureGroup("Recipe notes") { Text(recipe.source).font(.caption).textSelection(.enabled).padding(.top, 8) }
-                }.padding(24)
+            Group {
+                if let preparation {
+                    IngredientCheckView(store: store, session: preparation, update: updatePreparation,
+                                        onStart: { voice in
+                        if store.startCooking(preparation, voice: voice) { dismiss() }
+                    }, onClose: { dismiss() })
+                } else {
+                    ContentUnavailableView("Ingredients unavailable", systemImage: "basket", description: Text(preparationError ?? "Please reopen this recipe."))
+                }
             }
             .background(Theme.cream).foregroundStyle(Theme.ink)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } } }
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    store.choose(recipe, servings: servings)
-                    if store.session?.recipe.id == recipe.id { dismiss() }
-                } label: { Label("Start prep flow", systemImage: "arrow.right") }
-                    .buttonStyle(FilledButton())
-                    .padding(20).background(Theme.cream)
+            .toolbar {
+                ToolbarItem(placement: .principal) { Text("Oui Chef").font(Theme.serif(24)) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    if store.catalogAdmin && store.draftRevision != nil {
+                        Button(publishing ? "Publishing…" : "Publish draft") { confirmPublish = true }.disabled(publishing)
+                    }
+                }
             }
-        }.onAppear { servings = recipe.baseServings }
+            .confirmationDialog("Publish this recipe for everyone with access to its recipe set?", isPresented: $confirmPublish, titleVisibility: .visible) {
+                Button("Publish recipe") { Task { publishing = true; await store.publishSelectedDraft(); publishing = false } }
+            }
+        }
+        .onAppear {
+            guard preparation == nil else { return }
+            do { preparation = try store.preparation(for: recipe, servings: recipe.baseServings) }
+            catch { preparationError = error.localizedDescription }
+        }
+        .onChange(of: store.preferences) { _, preferences in
+            if let catalog = store.catalog {
+                _ = updatePreparation { try $0.applySavedPreferences(preferences, catalog: catalog, at: Date()) }
+            }
+        }
     }
 
-    private func prepCard(_ title: String, detail: String, symbol: String) -> some View {
-        HStack(spacing: 16) {
-            IngredientArtwork(food: nil, symbol: symbol)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(Theme.serif(24))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-        }.kitchenCard()
+    private func updatePreparation(_ edit: (inout CookingSession) throws -> Void) -> Bool {
+        guard var next = preparation else { return false }
+        do { try edit(&next); preparation = next; return true }
+        catch { store.error = error.localizedDescription; return false }
     }
 }

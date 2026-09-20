@@ -14,6 +14,21 @@ struct ChefPreferences: Codable, Equatable {
     var analyticsEnabled = false
     var keepScreenAwake = true
     var dislikedFoodIDs: Set<String>?
+
+    static let equipmentChoices = ["Pots & pans", "Everyday utensils", "Oven & baking tray", "Cooling rack", "Cocktail shaker", "Measuring jigger"]
+
+    func toolsToMention(for recipe: Recipe) -> [String] {
+        recipe.tools.filter { tool in
+            let group: String?
+            switch tool {
+            case "Large pot", "Saucepan": group = "Pots & pans"
+            case "Spoon", "Colander", "Mixing bowl", "Serving glass": group = "Everyday utensils"
+            case "Oven", "Baking tray": group = "Oven & baking tray"
+            default: group = nil // Specialized or unfamiliar tools remain visible, even when owned.
+            }
+            return group == nil || !(equipment.contains(group!) || equipment.contains(tool))
+        }
+    }
 }
 
 enum VoiceCommand: Equatable {

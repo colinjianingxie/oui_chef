@@ -7,7 +7,7 @@ Implemented September 17, 2026. Chef authoring, paid packs, cross-device live co
 - Recipe/set `tags` use the approved vocabulary in `OuiChef/Core/Resources/catalog-tags.json`. Imports normalize, deduplicate, and reject unknown tags. The app queries tags directly; safety still comes from ingredients.
 - Recipe versions embed the executable graph and optional authored `recoveryOptions`. `totalMinutes` and optional `maximumMinutes` drive displayed time estimates.
 - Set `access` is `{kind: "free"}` or `{kind: "subscription", productID: "…"}`. Actual checkout is deferred.
-- Legacy classifications, `classificationIDs`, price fields, and display-time strings remain for installed TestFlight clients. New cards mirror canonical tags into the legacy field. Remove these only after retiring those clients; new app/import validation does not use `appliesTo`.
+- September 18 cleanup removed legacy classifications, `classificationIDs`, the old set `price` map, duplicate published drafts, and unused classification indexes. Import/seed/publication write only canonical tags and access. Use TestFlight 1.0 (6) or newer after token-free search cleanup. Display-time strings remain for build 5 decoding; numbered published versions remain untouched.
 - Published versions remain immutable. The free Chef Margarita starters now use spaghetti v3, bread v2, and margarita v3. Active sessions retain their original version.
 
 ## Corrections and recovery
@@ -40,14 +40,13 @@ Remove photo, delete entry, and reauthenticated account deletion clean up images
 
 Firebase Storage uses the existing configured bucket `oui-chef-dev-20260914.firebasestorage.app` in US-EAST1, provisioned through the [Firebase default-bucket API](https://firebase.google.com/docs/reference/rest/storage/rest/v1alpha/projects.defaultBucket/create). Firestore/Storage rules and tag query indexes are deployed.
 
-The compatible tag/access migration preserves old fields and versions. Its local backup is `.firebase/catalog-before-tags-20260917.json` (ignored by git). Operator command:
+The September 17–18 catalog migrations are complete. Their backups and completed migration utility were deleted at the owner’s request. See [catalog operations](FIRESTORE_CATALOG.md) for the current layout and POC search without stored tokens. Operator commands:
 
 ```sh
-node backend/catalog-admin.mjs migrate-tags /new/path/catalog-backup.json oui-chef-dev-20260914
 node backend/catalog-admin.mjs draft /path/to/recipe.json oui-chef-dev-20260914
 node backend/catalog-admin.mjs publish spaghetti oui-chef-dev-20260914
 ```
 
 Publishing requires an allowlisted gcloud operator account. Client publication still uses verified Firebase identity. Chef creation/import UI and public creator APIs were not added.
 
-Checks: 23 Swift cooking/persistence tests and 15 backend tests pass, including Firestore and Storage emulator isolation, image size/type/path limits, replacements/deletes, old-client tool compatibility, and voice budget/concurrency controls. The signed simulator cooking flow passes manual preparation, timer pause/relaunch, completion, photo selection, guest-to-account upload and reauthenticated account deletion. The separate email account lifecycle test also passes; emulator inspection confirms no completed-dish records or photos remained after deletion. Seed a test image with `xcrun simctl addmedia <simulator-id> OuiChef/Assets.xcassets/AppIcon.appiconset/AppIcon.png` before running the photo flow. Physical camera capture and a real spoken recovery still need device acceptance; automated checks spend no xAI credit.
+Checks: 25 Swift cooking/persistence tests and 15 backend tests pass, including Firestore and Storage emulator isolation, image size/type/path limits, replacements/deletes, old-client tool compatibility, and voice budget/concurrency controls. The signed simulator cooking flow passes manual preparation, timer pause/relaunch, completion, photo selection, guest-to-account upload and reauthenticated account deletion. The separate email account lifecycle test also passes; emulator inspection confirms no completed-dish records or photos remained after deletion. Seed a test image with `xcrun simctl addmedia <simulator-id> OuiChef/Assets.xcassets/AppIcon.appiconset/AppIcon.png` before running the photo flow. Physical camera capture and a real spoken recovery still need device acceptance; automated checks spend no xAI credit.

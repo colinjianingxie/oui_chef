@@ -27,7 +27,7 @@ struct AccountView: View {
                         Text("The method you choose will be linked to this account, including any email or phone number it shares. Your existing sign-in methods will keep working.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        Text("The free recipes from Chef Margarita are yours to explore, with or without an account.")
+                        Text("Save recipes from anywhere and make them your own. Your cookbook and cooking memories stay private.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     if let method {
@@ -105,7 +105,7 @@ struct AccountView: View {
                 Button("Send verification email") { Task { await account.verifyEmail() } }.disabled(account.busy)
             }
             Button("Add a sign-in method") { intent = .link }.disabled(account.busy)
-            Text("Completed dishes and photos sync privately to your account. Preferences and active cooking progress are saved separately on this iPhone.")
+            Text("Your cookbook, cooking preferences, completed dishes and photos belong to this account. Cooking progress is also saved on this iPhone.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             Button("Sign out") { Task { await account.signOut() } }.disabled(account.busy)

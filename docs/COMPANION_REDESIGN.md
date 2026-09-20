@@ -1,0 +1,84 @@
+# Oui Chef companion redesign
+
+## Product flow
+
+Native SwiftUI replaces the catalog-first entry point with account creation, three short preference pages, and a private cookbook. The reference is `Downloads/new_design.png` and the twelve individual cooking-companion screens. Cream backgrounds, olive controls, serif headings, generous spacing, and food photography carry through onboarding, import, recipe review, preparation, cooking, completion, and the album.
+
+Home shows saved recipes, imports, unfinished cooks, and recently cooked dishes. Cookbook supports search and favorites. The center action imports a link. Album contains finished attempts, including those without photos. Profile holds persistent preferences and account controls. Equipment is optional, collapsed context. Only ingredients and usable instructions are required to import or cook.
+
+Cooking keeps the recipe visible, shows the current action, allocated ingredients, sensory cues, temperatures and multiple timers, and supports voice or touch. Browsing back does not undo completed work. Explicit repeat actions reopen a step and leave its earlier completion in history. Timer expiry means check the food, never automatic completion. Finishing preserves the recipe snapshot, events, substitutions, questions, notes, rating and optional dish photo. The screen stays awake by preference; microphone listening ends when the app backgrounds. Native local notifications identify the timer and its cooking cue.
+
+## Import pipeline
+
+1. Paste a URL, or use the bundled iOS Share Extension. The extension saves a durable App Group receipt before submitting. Signed-in receipts are tied to the account; anonymous receipts are claimed after sign-in. If submission fails, opening the main app retries the saved link.
+2. An authenticated endpoint creates a Firestore job and queues a Cloud Task. Deduplication includes the user, normalized URL and retry attempt. Work continues after the phone closes. Jobs expose queued, fetching, extracting, transcribing, checking, ready, skipped, failed and canceled states.
+3. The worker reads public HTML, recipe JSON-LD, metadata and surrounding text through a Python standard-library parser. Social sources additionally use pinned yt-dlp and its matching EJS package (using the existing Node runtime) to read descriptions and caption tracks. Public DNS addresses are checked and pinned for page requests, redirects, thumbnails and media connections. Cookies, credentials, local-network addresses and login bypasses are not accepted.
+4. xAI structured extraction decides whether supported ingredients and actionable steps exist. If useful evidence remains in video, the worker downloads bounded media, transcribes its audio and samples four timestamped frames with ffmpeg. Otherwise it can search for the original creator recipe or missing context and retry normalization. If the evidence remains insufficient, no recipe is invented or saved.
+5. The normalized recipe separates ingredients, preparation, named components, stages, steps, suggested timers, visual cues and source timestamps. Source, inferred and supporting evidence remain distinguishable. Simple preference adjustments are described explicitly; uncertain substitutions stay suggestions, and allergy conflicts remain visible for review. Recipes and private source thumbnails are saved in Firebase.
+
+Original videos remain at their attributed source. YouTube technique links seek to supported timestamps; other platforms open the original source while preserving cooking state. A timestamp is never fabricated when the source does not provide one.
+
+### Concrete beta limits
+
+- Public sources only. Social-platform availability varies; failed imports offer retry and pasted source text.
+- Downloaded media: up to 20 minutes and 40 MB; four 640-pixel video frames. HLS-only sources may provide captions without downloadable media.
+- Up to 150 ingredients and 150 steps. Missing amounts, time, servings and equipment are allowed.
+- Up to 20 active timers per cooking attempt. Timer deadlines survive restart; notification delivery depends on iOS notification permissions and system settings.
+- The cookbook loads the latest 200 records in each collection. Pagination is needed before exceeding that beta limit.
+- Components are named ingredient/step groups in a single ordered recipe; their steps can be visited independently and their timers overlap. There is no general dependency-graph scheduler.
+- Import allowance defaults to 1,500 reserved cents globally, reserving 100 cents per attempt. These are conservative quotas, not claims about actual billing. Raise/reset deliberately for further testing. Questions default to 60 per account per UTC day. The existing voice budget and 10-minute connection cap remain.
+- No silent learned changes to dietary or allergy settings. Prior attempts are supplied as context; users explicitly save preferences and modifications.
+
+## Data and model records
+
+Firebase Authentication provides identity. Firestore paths are:
+
+- `users/{uid}/settings/cooking`: preferences.
+- `users/{uid}/imports/{id}`: asynchronous import state and source receipt.
+- `users/{uid}/cookbook/{id}`: normalized recipe JSON and metadata.
+- `users/{uid}/cookbook/{id}/versions/1`: the initial normalized result.
+- `users/{uid}/cooks/{id}`: recipe snapshot and cooking history, with a server revision.
+- `aiRuns/{id}`: provider, requested and returned model, task, user/import/session IDs, prompt/schema versions, request ID, token usage, status and latency. Raw source text and ingredient photos are not logged here.
+- `voiceSessions/{id}` and the existing voice ledger retain metering and model metadata.
+- `aiBudget/imports`, `aiQuestionLimits/{uid}`: beta quotas.
+- `deletedAccounts/{uid}`: prevents in-flight work from recreating deleted account data.
+
+Storage uses private `users/{uid}/cooks/{attemptID}/dish.jpg` and `users/{uid}/recipeMedia/{recipeID}/cover-{attempt}` objects. Ingredient question photos are sent for that question and are not added to the album. Source audio/video and sampled frames are temporary worker files, removed after processing.
+
+The client keeps an atomic, account-specific local archive and a sync outbox. The server accepts session snapshots only against the expected revision. If another device has changed the same cook, the local continuation becomes a separate attempt, preserving both histories. No provider-specific objects are embedded in the recipe/session contract. A future OpenAI change should replace the request/voice adapters and rerun behavior checks; there is no speculative second provider implementation.
+
+Current defaults: `grok-4.3` for extraction, research and questions; `grok-voice-transcribe-2.0` for transcription; `grok-voice-think-fast-2.0` for live voice. Text and transcription defaults can be overridden by `XAI_RECIPE_MODEL` and `XAI_TRANSCRIPTION_MODEL`.
+
+API references checked during implementation: [structured outputs](https://docs.x.ai/developers/model-capabilities/text/structured-outputs), [speech transcription](https://docs.x.ai/developers/model-capabilities/audio/speech-to-text), [voice](https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech).
+
+## Deployment requirements
+
+Use the explicit Firebase/GCP project `oui-chef-dev-20260914`; the workstation's default gcloud project is unrelated.
+
+1. Deploy the updated Firestore and Storage rules. Storage rules read the deletion tombstone from Firestore, so the Firebase Storage service agent needs the cross-service rules permission requested by Firebase deployment.
+2. Give the existing runtime service account Cloud Tasks enqueue permission, Firestore get/list/create/update/delete permissions, and object get/list/create/update/delete permission on the project's Firebase Storage bucket. Do not put service-account credentials in the app.
+3. Enable Cloud Tasks and create a queue in `us-east1`, initially with one concurrent dispatch. Supply `IMPORT_TASK_QUEUE` as the full `projects/.../locations/us-east1/queues/...` resource and `IMPORT_WORKER_URL` as the HTTPS `/companion/worker` endpoint. Set a 900-second Cloud Run request timeout to match the task deadline. Worker requests are HMAC signed; unsigned calls are rejected.
+4. Build with `backend/cloudbuild.yaml` and deploy the resulting image to the existing development service. The image installs Python, ffmpeg and pinned yt-dlp. Supply `XAI_API_KEY` from Secret Manager and `FIREBASE_STORAGE_BUCKET=oui-chef-dev-20260914.firebasestorage.app`. `IMPORT_INLINE=1` is available only for local development and is rejected on Cloud Run.
+5. Register `com.xie.ouichef.share` and the App Group `group.com.xie.ouichef` for the Apple team. Both app targets need the shared keychain group and App Group entitlements. Refresh their provisioning profiles. A real device check must confirm sharing from Safari and each installed social app, microphone interruption behavior, and locked-phone timer alerts.
+
+No legacy account/catalog data needs to be deleted to activate the new entry point. The old catalog code is retained alongside the user's existing work, but the new product flow uses the private cookbook collections.
+
+## Verification
+
+- Core: `swift test`.
+- Backend: `cd backend && npm test`.
+- Rules: start isolated Firestore and Storage emulators, seed `catalog/seed.json` with the existing catalog CLI, then run backend tests with `FIRESTORE_EMULATOR_HOST` set. The old catalog tests require that seed.
+- New UI journey: `xcodebuild ... test -only-testing:OuiChefUITests/CompanionFlowTests`. The preexisting UI suites target the retired catalog screens and are not acceptance tests for this redesign.
+- Offline visual preview: launch Debug with `--companion-preview`; add `--companion-onboarding` to begin at preferences. The sample recipe and photo are explicitly marked preview data and are never written to Firebase.
+
+The welcome food photograph was generated for this redesign with the image-generation tool: editorial garlic tagliatelle on an ivory ceramic plate and linen, warm natural light, olive accents, and open space above for the welcome heading. It is bundled as `OuiChef/Assets.xcassets/WelcomeFood.imageset/welcome.png`.
+
+Build verification uses a local source copy because several project files are iCloud placeholders. Resolved Swift packages and the first build live under `/Volumes/Margarita01/OuiChef-Builds/redesign-20260920`; the final compilation uses `/tmp/ouichef-redesign-build` on the internal SSD. Earlier temporary Oui Chef build caches were relocated under `previous-caches` with symlinks left at their old `/tmp` paths; `relocations.json` records those moves. Keep the drive mounted to reuse those caches.
+
+Verified on September 20: all 27 Swift core tests; all 23 backend tests including isolated Firebase rules tests; one live Grok 4.3 structured extraction (3 ingredients and 3 steps); pinned yt-dlp command-line options. Live smoke testing used a synthetic recipe and kept the API key only in process memory.
+
+Additional live checks: xAI web research returned a cited answer from the original public recipe; speech transcription returned HTTP 200 for an eight-second public-domain test clip. The initial locally synthesized audio fixture was empty and was replaced before the passing transcription run. yt-dlp 2026.8.19 requires matching `yt-dlp-ejs==0.8.0` and `--js-runtimes node`; these are included in the worker image.
+
+The complete app and bundled Share Extension passed an unsigned iOS simulator build (both arm64 and x86_64). The temporary build copy recovered the unchanged icon from its existing generator and the privacy manifest from the earlier exported app because those two source files were iCloud placeholders; their unchanged contents and the other placeholders were restored from preserved copies.
+
+Final simulator acceptance: both onboarding and the complete cooking journey passed, including the pinned onboarding action, timer pause, browsing completed steps, explicit finish, photo skip, and album entry. Screenshots are available in `/tmp/ouichef-redesign-preview/index.html`. `git diff --check` passed. The backend and rules have not been deployed, Apple provisioning for the new extension has not been changed, and no TestFlight upload was performed.

@@ -14,11 +14,13 @@ Files:
 
 ### Preparation flow
 
-1. **Overview:** recipe, serving size, and the three preparation areas.
-2. **Preferences:** review allergies, disliked ingredients, dietary style, and any ingredient conflicts. A conflicted recipe can enter preparation so an available substitution can resolve it.
-3. **Ingredients:** grouped overview, bulk confirmation, expandable quantities, individual selection, product-label review, and supported substitutions.
-4. **Amounts:** change servings or supported ratios; preview applicable taste preferences. Recommended kitchen items are informational and require no confirmation.
-5. **Ready:** confirmed amounts and a choice to cook with or without voice.
+Opening a recipe goes straight to a single ingredient screen. The recipe is a local preparation copy until the user starts, so browsing and going back do not replace an active cooking session.
+
+- Saved dietary choices, dislikes, and supported taste ratios are applied before quantities are shown. Only authored compatible substitutions are used, and swaps are identified on the ingredient row. Unresolved conflicts stay visible and block starting where appropriate.
+- Recipe ingredients are visible immediately. Foods tagged `pantry_basic` appear in a collapsed section, marked as assumed on hand; any allergy, diet, composition, or dislike concern promotes that food into the main list. Salt, oil, water, black pepper, and ice have this trait. Category membership alone never makes an ingredient a basic.
+- Users confirm individual ingredients or tap **I have everything**. **Start Chef AI** (or **Cook without voice**) explicitly confirms the listed amounts, pantry basics, and product-label review. The footer states that confirmation before the button; there is no separate preferences, amounts, or ready page.
+- Servings, substitutions, and supported ratio adjustments remain available inline. Changes to an ingredient's amount clear its confirmation. Missing ingredients can be unchecked, including assumed pantry basics.
+- Signup and settings include a compact equipment page. Already-owned everyday tools are omitted from preparation; specialized or unrecognized tools remain visible without a confirmation gate. Cooking instructions can still name the tool needed for an action.
 
 Tools remain in the execution graph to prevent two simultaneous tasks claiming the same pan or appliance. They no longer participate in manual readiness. The agent directs users to ingredient preparation; it cannot tick off ingredients or bypass the manual review.
 
@@ -65,9 +67,9 @@ Validation rejects duplicate IDs, missing references, category cycles, and ingre
 - **Dietary rules:** check ingredient metadata and constituents, independent of recipe marketing tags. Gluten-free and dairy-free checks consider relevant allergens and unknown composition. Vegetarian/vegan checks need explicit tags.
 - **Alcohol:** follow ingredient traits, including constituents.
 - **Dislikes:** store canonical food IDs; surface a note wherever that food appears, including a compound ingredient. These are nonblocking taste preferences.
-- **Taste:** only recipe-authored ratio options can suggest a change. Currently sauce salt and margarita sweetness have mappings. The user sees quantities before applying them. Unsupported spice changes and baking changes are not invented.
+- **Taste:** only recipe-authored ratio options apply automatically. Currently sauce salt and margarita sweetness have mappings. Values are calculated from the original recipe and scaled to servings, so opening or refreshing preferences cannot compound adjustments. Unsupported spice changes and baking changes are not invented. Settings never rewrite a batch already being cooked.
 
-Substitutions are recipe-specific. The first example is dry wheat spaghetti ↔ rice spaghetti at the same dry weight, with package-based cooking instructions. Selecting it clears that ingredient's confirmation, product-label confirmation, and preparation completion. The actual recipe snapshot and voice context carry the choice. No substitution is allowed after cooking starts. There is no generic “replace any flour” rule.
+Substitutions are recipe-specific. During preparation, the first authored alternative without a blocking conflict or dislike is selected when the current ingredient conflicts with saved preferences. Users can review available alternatives inline. The first example is dry wheat spaghetti ↔ rice spaghetti at the same dry weight, with package-based cooking instructions. Selecting it clears that ingredient's confirmation, product-label confirmation, and preparation completion. The actual recipe snapshot and voice context carry the choice. No substitution is allowed after cooking starts. There is no generic “replace any flour” rule.
 
 These are generic ingredient descriptions, not verified branded-product records. A future product record must carry its actual label, composition, source, and review status. Continue asking users to inspect packaging and cross-contact information. The FDA distinguishes ingredient labeling from cross-contact risks: [Food allergies: read the label](https://www.fda.gov/consumers/consumer-updates/have-food-allergies-read-label). The catalog is not a certification that a particular product is safe.
 
@@ -85,8 +87,8 @@ Still deferred: chef-facing authoring screens, StoreKit subscriptions, a branded
 
 ## Validation
 
-- 18 Swift core tests cover recipe graphs, ingredient composition/category validation, dietary and allergy checks through constituents, nonblocking dislikes, supported substitutions, unchanged quantities, re-confirmation, archive compatibility, and bounded taste suggestions.
-- 12 local backend tests pass, including Firestore emulator rules and a fake voice provider; no xAI credit was used.
-- The iPhone 14 / iOS 18.4 UI flow exercises preference editing, ingredient search and dislike persistence, pasta substitution/restoration, bulk selection, label gating without tool verification, amount adjustment, cooking, and pause/relaunch.
+24 Swift core tests pass, including automatic compatible substitution, unresolved conflicts, serving-scaled taste ratios, repeat application, protection of in-progress batches, pantry concerns, and equipment filtering. The passing iPhone 14 / iOS 18.4 simulator flow checks immediate ingredient access, saved preferences, optional inline adjustments, quantity re-confirmation, cooking, timer restoration, and completed-dish photos. A separate account/signup check confirms that all six equipment choices fit without scrolling at the default text size. 15 backend checks pass using Firebase emulators and a fake voice provider. No paid AI calls were made.
 
-The original ingredient UI shipped in build 3; the Firestore implementation is uploaded as TestFlight **1.0 (4)**. The matching backend is `oui-chef-voice-00007-lcd`. See [release details and SDK symbol warnings](TESTFLIGHT.md). Direct installation on Colin’s iPhone was not part of this release.
+See [TestFlight release history](TESTFLIGHT.md) for uploaded builds. The new ingredient flow still needs a new app build before existing TestFlight installations can use it.
+
+On September 18, 2026, `pantry_basic` was added to the five shared Firestore ingredient records above; all other fields and published recipe versions were retained. The temporary migration backup was deleted at the owner’s request. Matching voice wording is deployed as `oui-chef-voice-00009-ttx`, with existing budget and concurrency settings unchanged. Cloud Build: `271fa015-7277-40d0-b66e-430c28351490`.
