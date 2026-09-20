@@ -22,7 +22,7 @@ The cooking screen can stay awake. Voice requires the foreground app; timer noti
 
 Use project **oui-chef-dev-20260914** explicitly; the workstation's default gcloud project is unrelated. Firebase client configuration is in `Configuration/GoogleService-Info.plist`; the xAI credential stays in Secret Manager.
 
-On September 20, all Firestore data was backed up and cleared, Firebase Auth accounts were retained, and the private cookbook/photo rules were deployed. The import task queue exists. **The redesigned Cloud Run backend and its runtime permissions still await deployment approval**, so the redesigned AI/import endpoints are not live yet. See [release operations](docs/COMPANION_REDESIGN.md#september-20-release-operations) for the exact status.
+On September 20, all Firestore data was backed up and cleared, Firebase Auth accounts were retained, and the private cookbook/photo rules were deployed. The redesigned backend is live as `oui-chef-voice-00012-b7c`, with the import queue and scoped runtime permissions configured. Live recipe import, private artwork, cooking questions, session sync, photo upload, and account-data cleanup passed. See [release operations](docs/COMPANION_REDESIGN.md#september-20-release-operations) for the exact status.
 
 ## Checks
 

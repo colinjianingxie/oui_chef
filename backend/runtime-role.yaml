@@ -1,5 +1,6 @@
 title: Oui Chef companion data
 description: Manage private recipes, cooking history and AI usage; no authentication administration.
+# Bind with the existing default-database condition and on Storage's users/ managed folder only.
 stage: GA
 includedPermissions:
   - datastore.databases.get
@@ -8,3 +9,8 @@ includedPermissions:
   - datastore.entities.create
   - datastore.entities.update
   - datastore.entities.delete
+  - storage.objects.get
+  - storage.objects.list
+  - storage.objects.create
+  - storage.objects.update
+  - storage.objects.delete
