@@ -1,5 +1,17 @@
 # TestFlight
 
+## September 21, 2026 — cookbook deletion and Chinese captions, build 9
+
+Oui Chef AI **1.0 (9)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **12:55:03 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `ff53653`, pushed to `main`. Upload ID: `7542d54e-684f-4d25-9a7c-6876b54bbe7c`. This build adds confirmed recipe deletion that preserves cooking history and resists stale device saves. The matching deployed backend, `oui-chef-voice-history-c1cbdf2fd553`, adds reliable caption fallback, original-language selection, English step extraction, corrected timestamp units, and safe re-import after clearing history. Firestore rules are deployed. The app changes were also built, installed, and launched on Colin’s iPhone before uploading.
+
+Verification: 30 Swift core tests, 29 backend tests, 16 companion tests with Firestore/Storage emulators, the simulator deletion journey, signed Release archiving, signature verification, and App Store Connect upload passed. Three unrelated emulator-only tests were skipped in the general backend run. Prior live Chinese-caption extraction returned six English steps; the release upload made no new paid AI calls.
+
+Archive and app/Share Extension dSYMs: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-21/OuiChef-1.0-cookbook-ff53653.xcarchive`. Sanitized receipt: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-21/OuiChef-1.0-9-upload-receipt.json`. Xcode assigned upload build 9; the source/archive setting remains 1.0 (2). The existing missing-dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc do not block the upload, but those dependency crash frames may have limited symbols.
+
+No tester assignments, Beta App Review submissions, or App Store release submissions were changed.
+
 ## September 20, 2026 — written recipe imports, build 8
 
 Oui Chef AI **1.0 (8)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully on September 21 at **03:02:31 UTC** (September 20 local time). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's final upload receipt was **PROCESSING**, with no record-level errors or warnings; tester availability has not been verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
