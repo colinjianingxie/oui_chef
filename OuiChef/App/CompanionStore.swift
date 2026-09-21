@@ -194,7 +194,10 @@ final class CompanionStore {
     }
     func importRecipe(_ raw: String, text: String = "") async {
         guard !importing else { return }
-        guard let url = Self.sharedURL(raw) else { error = "Paste a recipe or video link."; return }
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : Self.sharedURL(raw)
+        guard let url, !url.isEmpty || !text.isEmpty else { error = "Paste a recipe link or ingredients and steps."; return }
+        guard text.count <= 40000 else { error = "Keep recipe text under 40,000 characters."; return }
         importing = true; defer { importing = false }
         do { _ = try await request("import", body: ["url": url, "text": text]); pendingURL = "" }
         catch { self.error = error.localizedDescription }

@@ -31,6 +31,14 @@ export function normalizeURL(raw) {
   for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid|igsh|si$)/.test(key)) url.searchParams.delete(key);
   return url.href;
 }
+export function importInput(body) {
+  if (body.text != null && (typeof body.text !== 'string' || body.text.length > 40000)) throw new Error('Keep recipe text under 40,000 characters.');
+  if (body.url != null && (typeof body.url !== 'string' || body.url.length > 4000)) throw new Error('Use a public recipe link.');
+  const text = (body.text ?? '').trim(), raw = (body.url ?? '').trim();
+  if (!raw && !text) throw new Error('Paste a recipe link or ingredients and steps.');
+  const url = raw ? normalizeURL(raw) : '';
+  return { url, text, source: url ? sourceName(url) : 'Pasted text' };
+}
 async function resolvePublic(host) {
   const records = await lookup(host, { all: true, family: 4 });
   if (!records.length || records.some(r => !publicAddress(r.address))) throw new Error('This address is not a public source.');
@@ -90,27 +98,31 @@ export async function readSocial(url, withMedia = false) {
   try {
     const { stdout } = await exec('python3', ['-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--js-runtimes', 'node', '--no-cache-dir', '--proxy', proxy.url, '--skip-download', '--dump-single-json', '--no-playlist', '--no-warnings', '--socket-timeout', '15', '--retries', '0', '--', normalizeURL(url)], { timeout: 55000, maxBuffer: 5_000_000, env: toolEnvironment });
     const meta = JSON.parse(stdout);
-    const result = { text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration };
+    const result = { text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration,
+      extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
     const tracks = { ...meta.automatic_captions, ...meta.subtitles };
     const language = Object.keys(tracks).find(k => k === meta.language) ?? Object.keys(tracks).find(k => k.startsWith('en')) ?? Object.keys(tracks)[0];
     const track = tracks[language]?.find(t => t.ext === 'vtt') ?? tracks[language]?.find(t => t.ext === 'json3');
-    if (track) { try { const caption = await safeFetch(track.url, 1_000_000); result.text += '\nTimestamped captions:\n' + caption.bytes.toString().slice(0,80000); } catch { /* Continue with description/media. */ } }
-    if (withMedia && Number.isFinite(meta.duration) && meta.duration <= 1200) {
-      const formats = (meta.formats ?? []).filter(f => f.url?.startsWith('https:') && f.protocol === 'https' && f.acodec !== 'none');
-      const format = formats.find(f => f.vcodec !== 'none' && f.height <= 480 && f.ext === 'mp4') ?? formats.find(f => f.vcodec === 'none');
-      if (format) {
-        const media = await safeFetch(format.url, 40_000_000); const file = join(directory, 'media'); await writeFile(file, media.bytes);
-        const audio = join(directory, 'audio.mp3');
-        await exec('ffmpeg', ['-v','error','-protocol_whitelist','file,pipe','-i',file,'-vn','-ac','1','-ar','16000','-t','1200',audio], { timeout: 45000, env: toolEnvironment });
-        result.audio = await readFile(audio);
-        if (format.vcodec !== 'none') {
-          for (const fraction of [0.15,0.4,0.65,0.85]) {
-            const second = Math.floor(meta.duration * fraction), frame = join(directory, `frame-${second}.jpg`);
-            await exec('ffmpeg', ['-v','error','-ss',String(second),'-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=640:-1',frame], { timeout: 15000, env: toolEnvironment });
-            result.images.push({ second, data: (await readFile(frame)).toString('base64') });
+    if (track) { try { const caption = await safeFetch(track.url, 1_000_000); if(caption.bytes.length) { result.text += '\nTimestamped captions:\n' + caption.bytes.toString().slice(0,80000); result.hasTranscript = true; } } catch { /* Continue with description/media. */ } }
+    // Captions are deterministic evidence; only download/transcribe when they are unavailable.
+    if (withMedia && !result.hasTranscript && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
+      try {
+        const formats = (meta.formats ?? []).filter(f => f.url?.startsWith('https:') && f.protocol === 'https' && f.acodec !== 'none');
+        const format = formats.find(f => f.vcodec !== 'none' && f.height <= 480 && f.ext === 'mp4') ?? formats.find(f => f.vcodec === 'none');
+        if (format) {
+          const media = await safeFetch(format.url, 40_000_000); const file = join(directory, 'media'); await writeFile(file, media.bytes);
+          const audio = join(directory, 'audio.mp3');
+          await exec('ffmpeg', ['-v','error','-protocol_whitelist','file,pipe','-i',file,'-vn','-ac','1','-ar','16000','-t','1200',audio], { timeout: 45000, env: toolEnvironment });
+          result.audio = await readFile(audio);
+          if (format.vcodec !== 'none') {
+            for (const fraction of [0.15,0.4,0.65,0.85]) {
+              const second = Math.floor(meta.duration * fraction), frame = join(directory, `frame-${second}.jpg`);
+              await exec('ffmpeg', ['-v','error','-ss',String(second),'-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=640:-1',frame], { timeout: 15000, env: toolEnvironment });
+              result.images.push({ second, data: (await readFile(frame)).toString('base64') });
+            }
           }
-        }
-      }
+        } else { result.retrievalErrors.push('This platform did not expose a downloadable media file.'); }
+      } catch { result.retrievalErrors.push('Media could not be downloaded; using the available source text.'); }
     }
     return result;
   } finally { proxy.close(); await rm(directory, { recursive: true, force: true }); }

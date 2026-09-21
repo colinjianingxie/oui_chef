@@ -145,10 +145,7 @@ struct RecipeCatalog: Codable {
         }
         struct Recipes: Decodable { var schemaVersion: Int; var recipes: [Recipe] }
         let recipes = try JSONDecoder().decode(Recipes.self, from: Data(contentsOf: url))
-        guard let ingredientURL = bundle.url(forResource: "ingredients", withExtension: "json") else {
-            throw CookingError.invalid("The ingredient library is missing.")
-        }
-        let library = try JSONDecoder().decode(IngredientLibrary.self, from: Data(contentsOf: ingredientURL))
+        let library = try IngredientLibrary.bundled()
         try library.validate()
         let catalog = Self(schemaVersion: recipes.schemaVersion, foods: library.foods, recipes: recipes.recipes, categories: library.categories)
         try catalog.validate()

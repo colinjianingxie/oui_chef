@@ -12,6 +12,18 @@ struct IngredientLibrary: Codable {
     var categories: [FoodCategory]
     var foods: [Food]
 
+    static func bundled() throws -> Self {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        guard let url = bundle.url(forResource: "ingredients", withExtension: "json") else {
+            throw CookingError.invalid("The ingredient library is missing.")
+        }
+        return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+    }
+
     func validate() throws {
         guard schemaVersion == 1, Set(categories.map(\.id)).count == categories.count,
               Set(foods.map(\.id)).count == foods.count else { throw CookingError.invalid("Invalid ingredient library IDs or version.") }

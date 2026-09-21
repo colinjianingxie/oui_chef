@@ -3,6 +3,11 @@ import GoogleSignIn
 import SwiftUI
 
 struct AccountView: View {
+    let emailOnly: Bool
+    init(emailOnly: Bool = false) {
+        self.emailOnly = emailOnly
+        _method = State(initialValue: emailOnly ? "Email" : nil)
+    }
     @Bindable var account = AccountSession.shared
     @State private var method: String?
     @State private var intent: AccountSession.Intent = .signIn
@@ -18,7 +23,7 @@ struct AccountView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Text(intent == .deleteAccount ? "Confirm it’s you." : intent == .link ? "One kitchen.\nMore ways in." : "Your kitchen.\nYour way.")
+                    Text(intent == .deleteAccount ? "Confirm it’s you." : intent == .link ? "One kitchen.\nMore ways in." : account.accountID != nil ? "Privacy & account" : "Your kitchen.\nYour way.")
                         .font(Theme.serif(36)).accessibilityAddTraits(.isHeader)
                     if intent == .deleteAccount {
                         Text("Sign in again to delete this account, its private completed dishes and photos, and its cooking data on this iPhone. Voice usage and security records are retained in this development preview.")
@@ -42,20 +47,20 @@ struct AccountView: View {
                     if let notice = account.notice { Text(notice).font(.subheadline).foregroundStyle(Theme.green).accessibilityIdentifier("account-notice") }
                 }.padding(24)
             }
-            .scrollBounceBehavior(.basedOnSize).background(Theme.cream).foregroundStyle(Theme.ink)
+            .scrollBounceBehavior(.basedOnSize).background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { Text("Oui Chef").font(Theme.serif(24)) }
                 ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.disabled(account.busy) }
                 ToolbarItem(placement: .topBarLeading) {
-                    if method != nil || intent != .signIn {
+                    if (method != nil && !emailOnly) || intent != .signIn {
                         Button("Back") { method = nil; intent = .signIn; password = ""; account.error = nil }.disabled(account.busy)
                     }
                 }
             }
             .interactiveDismissDisabled(account.busy)
             .onChange(of: account.accountID) { _, id in
-                if id != nil && intent == .signIn { method = nil; password = "" }
+                if id != nil && intent == .signIn { password = ""; dismiss() }
                 if id == nil { method = nil; intent = .signIn; password = "" }
             }
             .alert("Delete your account?", isPresented: $confirmDelete) {
@@ -101,10 +106,6 @@ struct AccountView: View {
             Label(account.name, systemImage: "person.crop.circle.fill").font(.headline)
             Text("Signed in with \(account.providers.map { ["google.com": "Google", "apple.com": "Apple", "password": "email", "phone": "phone"][$0] ?? $0 }.joined(separator: ", ")).")
                 .font(.subheadline).foregroundStyle(.secondary)
-            if account.providers.contains("password") && !account.emailVerified {
-                Button("Send verification email") { Task { await account.verifyEmail() } }.disabled(account.busy)
-            }
-            Button("Add a sign-in method") { intent = .link }.disabled(account.busy)
             Text("Your cookbook, cooking preferences, completed dishes and photos belong to this account. Cooking progress is also saved on this iPhone.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()

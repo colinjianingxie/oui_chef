@@ -88,3 +88,21 @@ struct IngredientArtwork: View {
         }.frame(width: size, height: size).accessibilityHidden(true)
     }
 }
+
+extension View {
+    // One toolbar per presented screen, including numeric keyboards and multiline editors.
+    func keyboardDone() -> some View {
+        self.submitLabel(.done)
+            .onSubmit { dismissCookingKeyboard() }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { dismissCookingKeyboard() }.accessibilityIdentifier("keyboard-done")
+                }
+            }
+    }
+}
+
+@MainActor func dismissCookingKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}

@@ -1,8 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
-import { normalizeURL, sourceName, readPage, readSocial, safeFetch } from './import-source.mjs';
-import { extractRecipe, transcribe, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
+import { importInput, readPage, readSocial, safeFetch } from './import-source.mjs';
+import { classifySource, extractRecipe, transcribe, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
@@ -36,28 +36,43 @@ export async function runImport(db,uid,id,attempt) {
   try {
     const profileDoc=await db.doc(`users/${uid}/settings/cooking`).get();
     const profile=JSON.parse(profileDoc.data()?.payload??'{}');
-    let evidence={url:claimed.url,text:claimed.text??'',images:[]}, retrievalErrors=[];
-    try {evidence={...evidence,...await readPage(claimed.url)};}catch{retrievalErrors.push('The public page could not be read.');}
+    let evidence={url:claimed.url,text:'',images:[],mediaAttempted:true}, retrievalErrors=[];
+    let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
+    if(claimed.url) {
+      if(claimed.source==='Website') {
+        try {evidence={...evidence,...await readPage(claimed.url)};}catch{retrievalErrors.push('The public page could not be read.');}
+      } else {
+        await progress('transcribing','Reading the post and retrieving available captions or audio…');
+        try {
+          const social=await readSocial(claimed.url,true);
+          evidence={...evidence,...social};
+          retrieval={source:claimed.source,method:'yt-dlp',extractor:social.extractor,hasTranscript:social.hasTranscript};
+          retrievalErrors.push(...social.retrievalErrors);
+          if(social.audio) {
+            try { evidence.text+='\nAudio transcript:\n'+await transcribe(db,uid,id,social.audio); retrieval.hasTranscript=true; }
+            catch { retrievalErrors.push('Audio transcription was unavailable.'); }
+          }
+          delete evidence.audio;
+        } catch {
+          retrievalErrors.push('The platform did not expose captions or media metadata.');
+          retrieval.method='html_fallback';
+          try {evidence={...evidence,...await readPage(claimed.url)};}catch{retrievalErrors.push('The public page could not be read.');}
+        }
+      }
+    }
     if(claimed.text)evidence.text+='\nUser-supplied recipe text:\n'+claimed.text;
-    if(claimed.source!=='Website') {
-      try {const social=await readSocial(claimed.url);evidence.text+='\n'+social.text;evidence.imageURL??=social.imageURL;}catch{retrievalErrors.push('The platform did not expose captions or media metadata.');}
+    await progress('checking','Checking that this is a food recipe…');
+    const scope=await classifySource(db,uid,id,evidence);
+    await ref.update({retrieval,retrievalErrors,scope:scope.scope,scopeRunID:scope.runID});
+    if(scope.scope!=='food') {
+      await progress('skipped',scope.scope==='non_food'?'Oui Chef only imports food and drink recipes. This source is outside cooking.':'We could not find enough food-related information. Try pasting the ingredients and cooking steps.');
+      await ref.update({finishedAt:Date.now()});return;
     }
     await progress('extracting','Finding ingredients and cooking steps…');
     let result=await extractRecipe(db,uid,id,evidence,profile);
-    if(result.recipe.outcome==='needs_media' && claimed.source!=='Website') {
-      await progress('transcribing','Listening to the source and checking key moments…');
-      try {
-        const media=await readSocial(claimed.url,true);
-        evidence.text+='\n'+media.text;
-        if(media.audio)evidence.text+='\nAudio transcript:\n'+await transcribe(db,uid,id,media.audio);
-        evidence.images=media.images;evidence.mediaAttempted=true;
-      }catch{evidence.mediaAttempted=true;retrievalErrors.push('Video transcription was unavailable.');}
-      result=await extractRecipe(db,uid,id,evidence,profile);
-    }
-    if(result.recipe.outcome!=='recipe') {
+    if(result.recipe.outcome==='insufficient' && claimed.url) {
       await progress('checking','Checking for a linked recipe or missing context…');
       evidence.supplementalResearch=await researchSource(db,uid,id,claimed.url,result.recipe.reason);
-      evidence.mediaAttempted=true;
       result=await extractRecipe(db,uid,id,evidence,profile);
     }
     if(result.recipe.outcome!=='recipe') {
@@ -98,9 +113,8 @@ export async function handleCompanion(req,res,{db,auth}) {
     if(req.url!=='/companion/delete-account-data'&&(await db.doc(`deletedAccounts/${uid}`).get()).exists){send(res,403,{error:'This account is being deleted.'});return;}
     if(req.url==='/companion/import') {
       if(!process.env.XAI_API_KEY)throw new Error('Recipe AI is not configured.');
-      const url=normalizeURL(body.url);
-      if(body.text!=null&&(typeof body.text!=='string'||body.text.length>40000))throw new Error('Recipe text is too long.');
-      const id=createHash('sha256').update(url).digest('hex').slice(0,32),ref=db.doc(`users/${uid}/imports/${id}`);
+      const {url,text,source}=importInput(body);
+      const id=createHash('sha256').update(url||'text:'+text).digest('hex').slice(0,32),ref=db.doc(`users/${uid}/imports/${id}`);
       const result=await db.runTransaction(async tx=>{
         const [previous,deleted]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`))]),old=previous.data();
         if(deleted.exists)throw new Error('Account deleted.');
@@ -111,7 +125,7 @@ export async function handleCompanion(req,res,{db,auth}) {
         if(allocated>Number(process.env.IMPORT_BUDGET_CENTS??1500))throw new Error('The beta import allowance has been reached.');
         const attempt=(old?.attempt??0)+1;
         tx.set(budgetRef,{reservedCents:allocated,updatedAt:Date.now()});
-        tx.set(ref,{id,url,source:sourceName(url),text:body.text??'',status:'queued',message:'Waiting to read your recipe…',createdAt:Date.now(),attempt,reservedCents:100});
+        tx.set(ref,{id,url,source,text,status:'queued',message:'Waiting to read your recipe…',createdAt:Date.now(),attempt,reservedCents:100});
         return {id,attempt,existing:false};
       });
       if(!result.existing){try {if(!await enqueue(uid,id,result.attempt))void runImport(db,uid,id,result.attempt);}catch(error){await ref.update({status:'failed',message:error.message});throw error;}}
@@ -150,5 +164,5 @@ export async function handleCompanion(req,res,{db,auth}) {
       await db.recursiveDelete(db.doc(`users/${uid}`));send(res,200,{ok:true});return;
     }
     send(res,404,{error:'Not found.'});
-  }catch(error){const safe=['Use a public recipe link.','Recipe import is not configured yet.','Recipe AI is not configured.','Could not queue this import. Please retry.','The beta import allowance has been reached.','Today’s beta question allowance has been reached.','Please sign in again before deleting your account.'];send(res,400,{error:safe.includes(error.message)?error.message:'This request could not be completed. Please try again.'});}
+  }catch(error){const safe=['Paste a recipe link or ingredients and steps.','Keep recipe text under 40,000 characters.','Use a public recipe link.','Recipe import is not configured yet.','Recipe AI is not configured.','Could not queue this import. Please retry.','The beta import allowance has been reached.','Today’s beta question allowance has been reached.','Please sign in again before deleting your account.'];send(res,400,{error:safe.includes(error.message)?error.message:'This request could not be completed. Please try again.'});}
 }

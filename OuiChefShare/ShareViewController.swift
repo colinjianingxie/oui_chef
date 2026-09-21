@@ -18,18 +18,23 @@ import FirebaseAuth
         Task {
             for item in extensionContext?.inputItems as? [NSExtensionItem] ?? [] {
                 for provider in item.attachments ?? [] {
-                    for type in [UTType.url.identifier, UTType.plainText.identifier] where provider.hasItemConformingToTypeIdentifier(type) {
+                    for type in [UTType.url.identifier, UTType.plainText.identifier, UTType.text.identifier] where provider.hasItemConformingToTypeIdentifier(type) {
                         if let value = try? await provider.loadItem(forTypeIdentifier: type, options: nil) {
-                            let text = (value as? URL)?.absoluteString ?? (value as? String) ?? ""
-                            if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue), let match = detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)), let url = match.url, ["http","https"].contains(url.scheme ?? "") {
-                                model.url = url.absoluteString; return
-                            }
+                            let text = (value as? URL)?.absoluteString ?? (value as? String) ?? (value as? NSAttributedString)?.string ?? (value as? Data).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                            if let url = Self.sharedLink(text) { model.url = url; return }
                         }
                     }
                 }
+                if let text = item.attributedContentText?.string, let url = Self.sharedLink(text) { model.url = url; return }
             }
             model.message = "No recipe link was shared. Try sharing the post’s link, or paste it inside Oui Chef."
         }
+    }
+    private static func sharedLink(_ text: String) -> String? {
+        let text = String(text.prefix(16000))
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
+        return detector.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap(\.url)
+            .first { ["http", "https"].contains($0.scheme ?? "") && $0.host != nil }?.absoluteString
     }
 }
 @MainActor @Observable final class ShareImportModel {
@@ -75,7 +80,7 @@ private struct ShareImportView: View {
             Spacer(minLength: 15)
             Button { if model.saved { model.close?() } else { Task { await model.submit() } } } label: {
                 HStack { if model.busy { ProgressView().tint(.white) }; Text(model.saved ? "Done" : "Add to my cookbook") }.frame(maxWidth: .infinity).padding(17).foregroundStyle(.white).background(olive,in: Capsule())
-            }.disabled(model.busy || (!model.saved && model.url.isEmpty))
+            }.buttonStyle(.plain).disabled(model.busy || (!model.saved && model.url.isEmpty))
         }.padding(28).background(Color(red: 0.97, green: 0.953, blue: 0.918)).foregroundStyle(olive).tint(olive)
     }
 }

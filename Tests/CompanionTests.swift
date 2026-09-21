@@ -2,6 +2,48 @@ import XCTest
 @testable import OuiChefCore
 
 final class CompanionTests: XCTestCase {
+    func testPreferenceSearchSelectionsAndAgentPayload() throws {
+        XCTAssertFalse(PreferenceSection.foods.isEmpty)
+        for section in PreferenceSection.allCases {
+            XCTAssertEqual(Set(section.options.map(\.id)).count, section.options.count)
+        }
+        XCTAssertTrue(PreferenceSection.allergies.options.contains { $0.id == "allergen.soy" && $0.matches("  SOYA ") })
+        XCTAssertTrue(PreferenceSection.dislikes.options.contains { $0.matches("courgette") })
+        var profile = CookProfile()
+        XCTAssertEqual(profile.allergyStatus, .unspecified)
+        profile.setNoKnownAllergies()
+        XCTAssertEqual(profile.allergyStatus, .noneKnown)
+        profile.select(["allergen.peanuts"], for: .allergies)
+        XCTAssertEqual(profile.allergyStatus, .selected)
+        profile.select(["gluten_free"], for: .restrictions)
+        profile.select(["air_fryer"], for: .equipment)
+        let encoded = try CompanionJSON.encode(profile)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any])
+        XCTAssertEqual(payload["allergies"] as? [String], ["Peanuts"])
+        XCTAssertEqual(payload["restrictions"] as? [String], ["Gluten-free"])
+        XCTAssertEqual(payload["equipment"] as? [String], ["Air fryer"])
+        XCTAssertEqual(try CompanionJSON.decode(CookProfile.self, encoded), profile)
+        profile.select([], for: .allergies)
+        XCTAssertEqual(profile.allergyStatus, .unspecified, "Clearing a checklist must not imply no allergies.")
+        profile.setNoKnownAllergies()
+        XCTAssertTrue(profile.allergyIDs.isEmpty)
+    }
+
+    func testOldPreferencesRemainExplicitUntilReviewed() throws {
+        let old = #"{"onboardingComplete":true,"allergies":"peanuts and an unusual allergy","dislikes":"cilantro","equipment":"no oven","diet":"Other"}"#
+        let migrated = try CompanionJSON.decode(CookProfile.self, old)
+        XCTAssertTrue(migrated.onboardingComplete)
+        XCTAssertTrue(migrated.needsPreferenceReview)
+        XCTAssertEqual(migrated.allergyStatus, .unspecified)
+        XCTAssertTrue(migrated.allergyIDs.isEmpty, "Do not guess structured allergies from earlier prose.")
+        XCTAssertEqual(migrated.previousPreferencesPendingReview["allergies"], "peanuts and an unusual allergy")
+        XCTAssertEqual(try CompanionJSON.decode(CookProfile.self, CompanionJSON.encode(migrated)), migrated)
+        var reviewed = migrated
+        reviewed.select(["allergen.peanuts"], for: .allergies)
+        reviewed.previousPreferencesPendingReview = [:]
+        XCTAssertFalse(try CompanionJSON.decode(CookProfile.self, CompanionJSON.encode(reviewed)).needsPreferenceReview)
+    }
+
     func recipe() -> CompanionRecipe {
         CompanionRecipe(id: "bread", title: "Bread", sourceURL: "https://example.com/bread", sourceName: "Website",
             ingredients: [RecipeIngredient(id: "flour", name: "Flour", quantity: "Amount not specified")],

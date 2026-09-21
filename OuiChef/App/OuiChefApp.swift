@@ -24,8 +24,16 @@ final class AuthAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         #else
         FirebaseApp.configure()
         #endif
-        if let group = Bundle.main.object(forInfoDictionaryKey: "OuiChefSharedKeychainGroup") as? String {
-            do { try Auth.auth().useUserAccessGroup(group) } catch { print("Shared sign-in unavailable for this build.") }
+        var group = Bundle.main.object(forInfoDictionaryKey: "OuiChefSharedKeychainGroup") as? String
+        #if DEBUG
+        // Keep emulator identities out of the app/extension's real shared account.
+        if ProcessInfo.processInfo.arguments.contains("--auth-emulator") { group = nil }
+        #endif
+        do { try Auth.auth().useUserAccessGroup(group) }
+        catch {
+            // Firebase changes its stored group before throwing; restore local sign-in explicitly.
+            try? Auth.auth().useUserAccessGroup(nil)
+            print("Shared sign-in unavailable for this build; using app-local sign-in.")
         }
         let firestoreSettings = Firestore.firestore().settings
         firestoreSettings.cacheSettings = MemoryCacheSettings()

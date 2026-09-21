@@ -89,22 +89,6 @@ struct RecipeEvidence: Codable, Equatable {
     var timestamp: Double?
 }
 
-struct CookProfile: Codable, Equatable {
-    var onboardingComplete = false
-    var diet = "Everything"
-    var allergies = ""
-    var dislikes = ""
-    var spice = "Medium"
-    var salt = "Balanced"
-    var experience = "Home cook"
-    var servings = 2
-    var householdSize = 2
-    var units = "Metric"
-    var equipment = ""
-    var keepAwake = true
-    var gentleGuidance = true
-}
-
 struct RecipeImport: Codable, Identifiable, Equatable {
     var id: String
     var url: String

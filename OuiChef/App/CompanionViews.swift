@@ -21,7 +21,7 @@ struct CompanionRootView: View {
         Group {
             if account.accountID == nil && !preview { CompanionWelcome() }
             else if store.loading { ZStack { Theme.cream.ignoresSafeArea(); ProgressView("Opening your kitchen…") } }
-            else if !store.profile.onboardingComplete { CompanionPreferences(store: store, onboarding: true) }
+            else if !store.profile.onboardingComplete || store.profile.needsPreferenceReview { CompanionPreferences(store: store, onboarding: true) }
             else { CompanionHome(store: store) }
         }
         .id(account.accountID ?? "signed-out").tint(Theme.green).preferredColorScheme(.light)
@@ -69,7 +69,7 @@ private struct CompanionWelcome: View {
                     }.padding(24).frame(maxWidth: .infinity).background(Theme.cream, in: UnevenRoundedRectangle(topLeadingRadius: 34, topTrailingRadius: 34)).padding(.top, -26)
                 }
             }.background(Theme.cream).ignoresSafeArea(edges: .bottom)
-        }.sheet(isPresented: $email) { AccountView() }
+        }.sheet(isPresented: $email) { AccountView(emailOnly: true) }
     }
 }
 
@@ -78,18 +78,28 @@ struct CompanionPreferences: View {
     var onboarding = false
     @State private var draft = CookProfile()
     @State private var page = 0
+    @State private var picker: PreferenceSection?
     @Environment(\.dismiss) private var dismiss
-    private let diets = [("Everything", "A little of everything", "fork.knife"), ("Vegetarian", "Plants, dairy & eggs", "carrot"), ("Vegan", "Entirely plant based", "leaf"), ("Pescatarian", "Plants & seafood", "fish"), ("Other", "Tell us what works for you", "heart")]
+    private let diets = [("Everything", "A little of everything", "fork.knife"), ("Vegetarian", "Plants, dairy & eggs", "carrot"), ("Vegan", "Entirely plant based", "leaf"), ("Pescatarian", "Plants & seafood", "fish")]
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     if onboarding {
-                        HStack { Text("\(page + 1) of 3"); Spacer(); Button("Set up later") { finish() } }.font(.caption).foregroundStyle(.secondary)
+                        HStack { Text("\(page + 1) of 3"); Spacer(); if !draft.needsPreferenceReview { Button("Set up later") { finish() } } }.font(.caption).foregroundStyle(.secondary)
                         ProgressView(value: Double(page + 1), total: 3).tint(Theme.green)
                     }
                     Text(onboarding ? ["What’s your\ncooking style?", "Make it\nyour own.", "A little about\nyour kitchen."][page] : "Your kitchen,\nyour way.").font(Theme.serif(38))
                     Text("A few preferences help your chef guide you. You can change them anytime.").font(.subheadline).foregroundStyle(.secondary)
+                    if draft.needsPreferenceReview {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Review your saved preferences").font(.headline)
+                            Text("Choose the matching options below. Saving replaces these earlier notes; nothing is changed until then.").font(.caption)
+                            ForEach(draft.previousPreferencesPendingReview.keys.sorted(), id: \.self) { key in
+                                Text("\(key.capitalized): \(draft.previousPreferencesPendingReview[key] ?? "")").font(.subheadline)
+                            }
+                        }.kitchenCard()
+                    }
                     if !onboarding || page == 0 {
                         VStack(spacing: 8) {
                             ForEach(diets, id: \.0) { item in
@@ -102,11 +112,12 @@ struct CompanionPreferences: View {
                                 }.buttonStyle(.plain)
                             }
                         }
-                        entry("Allergies & dietary restrictions", hint: "e.g. peanuts, gluten — or none", text: $draft.allergies)
+                        selectionRow(.allergies)
+                        selectionRow(.restrictions)
                         Text("Your allergy settings are always controlled by you.").font(.caption).foregroundStyle(.secondary)
                     }
                     if !onboarding || page == 1 {
-                        entry("Foods you prefer to avoid", hint: "e.g. cilantro, mushrooms", text: $draft.dislikes)
+                        selectionRow(.dislikes)
                         choice("Spice", value: $draft.spice, options: ["Mild", "Medium", "Hot"])
                         choice("Salt", value: $draft.salt, options: ["Lower", "Balanced"])
                         choice("Cooking experience", value: $draft.experience, options: ["Beginner", "Home cook", "Confident"])
@@ -118,22 +129,38 @@ struct CompanionPreferences: View {
                         Toggle("Keep screen awake while cooking", isOn: $draft.keepAwake)
                         Toggle("Gentle cooking reminders", isOn: $draft.gentleGuidance)
                         DisclosureGroup("Equipment · optional") {
-                            entry("Anything you’d like your chef to know", hint: "e.g. no oven, air fryer available", text: $draft.equipment).padding(.top, 15)
+                            selectionRow(.equipment).padding(.top, 15)
                         }.font(.subheadline)
                     }
                 }.padding(26)
             }.background(Theme.cream).foregroundStyle(Theme.ink)
                 .safeAreaInset(edge: .bottom) {
-                    Button(onboarding && page < 2 ? "Next" : onboarding ? "Open my kitchen" : "Save preferences") {
+                    Button(onboarding && page < 2 ? "Next" : draft.needsPreferenceReview ? "Save reviewed preferences" : onboarding ? "Open my kitchen" : "Save preferences") {
                         if onboarding && page < 2 { withAnimation { page += 1 } } else { finish() }
                     }.buttonStyle(FilledButton()).padding(.horizontal, 26).padding(.vertical, 12).background(Theme.cream)
                 }
                 .toolbar { if !onboarding { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } } }
         }.onAppear { draft = store.profile }
+        .sheet(item: $picker) { section in PreferenceChecklist(section: section, profile: $draft) }
     }
-    private func finish() { draft.onboardingComplete = true; store.setProfile(draft); dismiss() }
-    private func entry(_ title: String, hint: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 9) { Text(title).font(.subheadline.weight(.medium)); TextField(hint, text: text, axis: .vertical).padding(14).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 12)) }
+    private func finish() {
+        draft.onboardingComplete = true
+        draft.previousPreferencesPendingReview = [:]
+        store.setProfile(draft); dismiss()
+    }
+    private func selectionRow(_ section: PreferenceSection) -> some View {
+        let names = section.names(draft.selectedIDs(section))
+        let empty = section == .allergies ? (draft.allergyStatus == .noneKnown ? "No known allergies" : "Not specified") : "Choose options"
+        return Button { picker = section } label: {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(section.title).font(.subheadline.weight(.medium))
+                    Text(names.isEmpty ? empty : names.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                }
+                Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.green)
+            }.padding(16).frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).accessibilityIdentifier("preferences-" + section.rawValue)
     }
     private func choice(_ title: String, value: Binding<String>, options: [String]) -> some View {
         VStack(alignment: .leading, spacing: 10) { Text(title).font(.subheadline.weight(.medium)); Picker(title, selection: value) { ForEach(options, id: \.self) { Text($0) } }.pickerStyle(.segmented) }
@@ -182,7 +209,7 @@ struct CompanionHome: View {
                     }
                     if let notice = store.notice { Label(notice, systemImage: "icloud").font(.caption).foregroundStyle(.secondary) }
                 }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 24)
-            }.background(Theme.cream).foregroundStyle(Theme.ink)
+            }.background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
                 .safeAreaInset(edge: .bottom, spacing: 0) { tabBar }
                 .toolbar(.hidden, for: .navigationBar)
                 .refreshable { store.sync() }
@@ -206,7 +233,7 @@ struct CompanionHome: View {
         }
     }
     private var search: some View {
-        HStack(spacing: 10) { Image(systemName: "magnifyingglass"); TextField("Search your recipes…", text: $query).submitLabel(.search); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Clear search") } }
+        HStack(spacing: 10) { Image(systemName: "magnifyingglass"); TextField("Search your recipes…", text: $query).submitLabel(.done); if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Clear search") } }
             .font(.subheadline).foregroundStyle(.secondary).padding(14).background(Theme.green.opacity(0.065), in: RoundedRectangle(cornerRadius: 14))
     }
     private var importCard: some View {
@@ -266,7 +293,7 @@ struct CompanionHome: View {
             HStack { stat("\(store.recipes.count)", "recipes"); Spacer(); stat("\(store.history.count)", "dishes made"); Spacer(); stat("\(store.recipes.filter(\.favorite).count)", "favorites") }.padding(22).background(Theme.sage, in: RoundedRectangle(cornerRadius: 20))
             Button { settings = true } label: { Label("Cooking preferences", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
             Button { store.showImport = true } label: { Label("Import history", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
-            Button { account = true } label: { Label("Account & privacy", systemImage: "person.crop.circle").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
+            Button { account = true } label: { Label("Privacy & account", systemImage: "person.crop.circle").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
             Text("A little more confidence.\nA little less looking at your phone.").font(Theme.serif(25)).foregroundStyle(Theme.green).padding(.top, 30)
         }
     }
@@ -317,29 +344,65 @@ struct CompanionImportView: View {
     @Bindable var store: CompanionStore
     @State private var url = ""
     @State private var recipeText = ""
+    @State private var textMode = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
                     Text("Turn any recipe\ninto your recipe.").font(Theme.serif(37))
-                    Text("Paste a link from YouTube, TikTok, Instagram, RedNote, or a recipe website. Your chef will take it from here.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
-                    HStack { Image(systemName: "link"); TextField("Paste a link here…", text: $url).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("recipe-url"); PasteButton(payloadType: String.self) { values in if let first = values.first { url = first } }.labelStyle(.iconOnly) }.padding(15).background(Theme.green.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-                    DisclosureGroup("Have the recipe text? Add it here") {
-                        TextEditor(text: $recipeText).frame(minHeight: 100).padding(8).scrollContentBackground(.hidden).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 12)).padding(.top, 10)
-                    }.font(.subheadline)
-                    Button { Task { await store.importRecipe(url, text: recipeText) } } label: { HStack { if store.importing { ProgressView().tint(.white) }; Text(store.importing ? "Adding your recipe…" : "Make it a recipe"); Spacer(); Image(systemName: "arrow.right") } }.buttonStyle(FilledButton()).disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.importing)
-                    HStack(spacing: 16) { ForEach([("play.rectangle","YouTube"),("music.note","TikTok"),("camera","Instagram"),("text.bubble","RedNote")], id: \.1) { source in VStack(spacing: 9) { Image(systemName: source.0).font(.title3).frame(width: 45, height: 45).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 12)); Text(source.1).font(.system(size: 10)) }.frame(maxWidth: .infinity) } }
+                    Text("Bring the ingredients and instructions. Your chef will turn them into a recipe you can cook.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(textMode ? "Paste the text" : "Paste a link").font(.headline)
+                        if textMode {
+                            TextEditor(text: $recipeText).frame(height: 160).padding(10).scrollContentBackground(.hidden)
+                                .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                                .accessibilityLabel("Recipe text").accessibilityIdentifier("recipe-text")
+                            Text("Include ingredients and steps. A link isn’t required.").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            HStack(spacing: 12) {
+                                Image(systemName: "link")
+                                TextField("Paste a link here…", text: $url).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("recipe-url")
+                                PasteButton(payloadType: String.self) { values in if let first = values.first { url = first } }.labelStyle(.iconOnly)
+                            }.padding(15).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        Button {
+                            dismissCookingKeyboard()
+                            Task { await store.importRecipe(textMode ? "" : url, text: textMode ? recipeText : "") }
+                        } label: {
+                            HStack(spacing: 12) {
+                                if store.importing { ProgressView().tint(.white) }
+                                Text(store.importing ? "Adding your recipe…" : "Make it a recipe")
+                                Image(systemName: "arrow.right")
+                            }.padding(.horizontal, 20).frame(minHeight: 24)
+                        }.buttonStyle(FilledButton()).accessibilityIdentifier("make-recipe")
+                            .disabled((textMode ? recipeText : url).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.importing)
+                    }
+                    HStack { Rectangle().frame(height: 1); Text("or").font(.caption); Rectangle().frame(height: 1) }.foregroundStyle(Theme.green.opacity(0.3))
+                    VStack(spacing: 12) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "photo").frame(width: 24)
+                            Text("Upload a photo")
+                            Spacer()
+                            Text("Coming soon").font(.caption).foregroundStyle(.secondary)
+                        }.padding(18).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+                            .accessibilityElement(children: .combine)
+                        Button { dismissCookingKeyboard(); textMode.toggle() } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: textMode ? "link" : "doc.text").frame(width: 24)
+                                Text(textMode ? "Paste a link" : "Paste the text")
+                                Spacer(); Image(systemName: "chevron.right").font(.caption)
+                            }.padding(18).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                        }.buttonStyle(.plain).accessibilityIdentifier("toggle-import-mode").disabled(store.importing)
+                    }
                     Label("Or tap Share in another app, then choose Oui Chef. Look under More if you don’t see it.", systemImage: "square.and.arrow.up").font(.caption).foregroundStyle(.secondary).lineSpacing(4)
                     if !store.imports.isEmpty {
                         Divider().padding(.vertical, 8)
                         Text("In your kitchen").font(Theme.serif(25))
                         ForEach(store.imports) { item in importRow(item) }
-                    } else {
-                        Text("Good recipes travel far.\nNow they’re yours to cook.").font(Theme.serif(25)).italic().foregroundStyle(Theme.green).padding(.vertical, 40).frame(maxWidth: .infinity)
                     }
                 }.padding(25)
-            }.background(Theme.cream).foregroundStyle(Theme.ink)
+            }.background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }.onAppear { url = store.pendingURL }
     }
@@ -358,7 +421,7 @@ struct CompanionImportView: View {
             } else if item.running {
                 HStack { Text("You can leave. We’ll keep working.").font(.caption); Spacer(); Button("Cancel") { Task { await store.cancelImport(item.id) } }.font(.caption) }
             } else if ["failed","skipped","canceled"].contains(item.status) {
-                Button("Try again or add recipe text") { url = item.url }.font(.subheadline)
+                Button("Try again or paste recipe text") { url = item.url; textMode = item.url.isEmpty }.font(.subheadline)
             }
         }.padding(19).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
     }
@@ -388,7 +451,10 @@ struct CompanionRecipeView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(recipe.title).font(Theme.serif(35)).fixedSize(horizontal: false, vertical: true)
                             if !recipe.summary.isEmpty { Text(recipe.summary).font(.subheadline).foregroundStyle(.secondary) }
-                            HStack(spacing: 8) { Image(systemName: "link"); Text(recipe.creator ?? recipe.sourceName); Text("·"); Link("Original recipe ↗", destination: URL(string: recipe.sourceURL) ?? URL(string: "https://example.com")!) }.font(.caption).foregroundStyle(Theme.green)
+                            HStack(spacing: 8) {
+                                Image(systemName: "link"); Text(recipe.creator ?? recipe.sourceName)
+                                if let source = URL(string: recipe.sourceURL), ["https", "http"].contains(source.scheme ?? "") { Text("·"); Link("Original recipe ↗", destination: source) }
+                            }.font(.caption).foregroundStyle(Theme.green)
                         }
                         HStack(spacing: 20) {
                             Label(recipe.servings.map { "\($0) servings" } ?? "Servings not specified", systemImage: "person.2")
@@ -497,16 +563,22 @@ struct CompanionCookingView: View {
         .sheet(isPresented: $showSteps) { stepsSheet }
         .sheet(isPresented: $store.showPhoto) { if let attempt = store.active { CompanionPhotoView(store: store, attemptID: attempt.id) } }
         .sheet(isPresented: Binding(get: { store.videoURL != nil }, set: { if !$0 { store.videoURL = nil } })) { if let url = store.videoURL { SourceVideoView(url: url) } }
-        .alert("Set a timer", isPresented: $timerEntry) {
-            TextField("Minutes", text: $timerMinutes).keyboardType(.decimalPad)
-            Button("Start") { if let minutes = Double(timerMinutes), minutes.isFinite { store.act("start_timer", seconds: minutes * 60); Task { await store.enableNotifications() } } else { store.error = "Enter a number of minutes." } }
-            Button("Cancel", role: .cancel) {}
-        } message: { Text("This timer will stay with the current step.") }
-        .alert("Remember a change", isPresented: $changeEntry) {
-            TextField("e.g. used chicken thighs", text: $changeText)
-            Button("Save") { store.act("record_change", text: changeText); changeText = "" }
-            Button("Cancel", role: .cancel) {}
-        } message: { Text("Keep substitutions and adjustments with this attempt.") }
+        .sheet(isPresented: $timerEntry) {
+            CookingTextEntry(title: "Set a timer", hint: "Minutes", message: "This timer will stay with the current step.", actionTitle: "Start timer", keyboard: .decimalPad, text: $timerMinutes) {
+                guard let minutes = Double(timerMinutes.replacingOccurrences(of: ",", with: ".")), minutes.isFinite, (1...604800).contains(minutes * 60) else { return "Choose a duration from one second to seven days." }
+                store.act("start_timer", seconds: minutes * 60)
+                Task { await store.enableNotifications() }
+                return nil
+            }
+        }
+        .sheet(isPresented: $changeEntry) {
+            CookingTextEntry(title: "Remember a change", hint: "e.g. used chicken thighs", message: "Keep substitutions and adjustments with this attempt.", actionTitle: "Save change", text: $changeText) {
+                let text = changeText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty, text.count <= 1000 else { return "Describe the change in 1–1,000 characters." }
+                store.act("record_change", text: text); changeText = ""
+                return nil
+            }
+        }
     }
     private func cooking(_ attempt: CookAttempt) -> some View {
         VStack(spacing: 0) {
@@ -613,7 +685,7 @@ struct RecipeQuestionView: View {
                     Text(recipe.title).font(.subheadline).foregroundStyle(Theme.green)
                     Text("Ask about an ingredient, a substitution, or what to look for. Your chef knows the recipe you’re making.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
                     if let image { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 17)); Button("Remove photo") { self.image = nil }.font(.caption) }
-                    TextField("Ask anything…", text: $question, axis: .vertical).lineLimit(2...5).padding(17).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
+                    TextField("Ask anything…", text: $question, axis: .vertical).accessibilityIdentifier("recipe-question").lineLimit(2...5).padding(17).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
                     HStack {
                         Button { Task { if await AVCaptureDevice.requestAccess(for: .video), UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { store.error = "Camera unavailable. Choose a photo, or enable access in Settings." } } } label: { Label("Use camera", systemImage: "camera") }
                         Spacer(); PhotosPicker(selection: $selection, matching: .images) { Label("Choose photo", systemImage: "photo") }
@@ -623,7 +695,7 @@ struct RecipeQuestionView: View {
                     ForEach(["Can I substitute an ingredient?", "How should this look?", "What did I change last time?"], id: \.self) { prompt in Button { question = prompt } label: { Text(prompt).font(.caption).padding(.horizontal, 14).padding(.vertical, 11).overlay(Capsule().stroke(Theme.green.opacity(0.18))) } }
                     Text("Ingredient photos are used for this question. They aren’t added to your album.").font(.caption).foregroundStyle(.secondary)
                 }.padding(25)
-            }.background(Theme.cream).foregroundStyle(Theme.ink).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            }.background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }.onAppear { store.lastAnswer = nil; store.stopVoice() }
         .fullScreenCover(isPresented: $camera) { CompanionCamera { image = $0; camera = false } }
         .onChange(of: selection) { _, item in Task { if let data = try? await item?.loadTransferable(type: Data.self) { image = UIImage(data: data) } } }
@@ -686,7 +758,7 @@ struct AttemptDetailView: View {
                         Text(Date(timeIntervalSince1970: (attempt.finishedAt ?? attempt.startedAt) / 1000), style: .date).font(.subheadline).foregroundStyle(.secondary)
                         if let end = attempt.finishedAt { Label("\(max(1, Int((end - attempt.startedAt) / 60000))) minutes in your kitchen", systemImage: "clock").font(.caption) }
                         HStack(spacing: 15) { ForEach(1...5, id: \.self) { value in Button { rating = value } label: { Image(systemName: value <= rating ? "star.fill" : "star").font(.title2).frame(width: 40, height: 44) }.accessibilityLabel("Rate \(value) stars") } }
-                        TextField("A note for next time…", text: $note, axis: .vertical).lineLimit(3...8).padding(17).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
+                        TextField("A note for next time…", text: $note, axis: .vertical).accessibilityIdentifier("cooking-note").lineLimit(3...8).padding(17).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
                         Button { photo = true } label: { Label(image == nil ? "Add a dish photo" : "Replace dish photo", systemImage: "camera") }.frame(minHeight: 44)
                         if !attempt.changes.isEmpty { Text("Your changes").font(Theme.serif(25)); ForEach(attempt.changes, id: \.self) { Text($0).font(.subheadline) } }
                         DisclosureGroup("Cooking timeline") { ForEach(attempt.events) { event in HStack(alignment: .top) { Text(Date(timeIntervalSince1970: event.at / 1000), style: .time).font(.caption).foregroundStyle(.secondary); Text(event.kind.replacingOccurrences(of: "_", with: " ") + ": " + event.detail).font(.caption) }.padding(.vertical, 6) } }
@@ -694,7 +766,7 @@ struct AttemptDetailView: View {
                         Button("Save memory") { store.updateAttempt(attemptID) { $0.notes = note; $0.rating = rating }; dismiss() }.buttonStyle(FilledButton())
                     }.padding(25)
                 }
-            }.background(Theme.cream).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            }.background(Theme.cream).keyboardDone().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }.onAppear { note = attempt?.notes ?? ""; rating = attempt?.rating ?? 0 }
         .task(id: attempt?.photoFile ?? attempt?.photoPath) { if let attempt { image = await store.loadPhoto(attempt) } }
         .sheet(isPresented: $photo) { CompanionPhotoView(store: store, attemptID: attemptID) }
