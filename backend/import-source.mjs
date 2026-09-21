@@ -113,20 +113,53 @@ export function retrievalError(error) {
   if (/format.*not available|no video formats/i.test(detail)) return 'Video formats were unavailable; trying the public description and captions.';
   return 'The source extractor could not retrieve media metadata.';
 }
-export function captionText(raw) {
+export function captionText(raw, timestamps = false) {
   if (raw.trim().startsWith('{')) {
-    try { return JSON.parse(raw).events?.map(e => (e.segs ?? []).map(s => s.utf8 ?? '').join('')).filter(s => s.trim()).join('\n') ?? ''; } catch { return ''; }
+    try { return JSON.parse(raw).events?.map(e => {
+      const text = (e.segs ?? []).map(s => s.utf8 ?? '').join('').trim();
+      return text && (timestamps && Number.isFinite(e.tStartMs) ? `[${e.tStartMs / 1000}s] ${text}` : text);
+    }).filter(Boolean).join('\n') ?? ''; } catch { return ''; }
   }
   if (!raw.trim().startsWith('WEBVTT')) return '';
   const lines = raw.split('\n').filter(line => line.trim() && !/^(WEBVTT|Kind:|Language:|NOTE|\d+$)|-->/.test(line));
-  return lines.join('\n').replace(/<[^>]*>/g, '').trim();
+  const text = lines.join('\n').replace(/<[^>]*>/g, '').trim();
+  return text && timestamps ? raw : text;
 }
-async function readCaptions(tracks, result) {
-  for (const track of tracks.slice(0, 4)) {
+export function captionTracks(meta) {
+  const tracks = [];
+  for (const [kind, languages] of [['manual', meta.subtitles], ['automatic', meta.automatic_captions]]) {
+    for (const [language, formats] of Object.entries(languages ?? {})) {
+      for (const track of formats) if (['vtt', 'json3'].includes(track.ext)) tracks.push({ ...track, language, kind });
+    }
+  }
+  for (const track of meta.captionTracks ?? []) {
+    for (const ext of ['json3', 'vtt']) {
+      const url = new URL(track.baseUrl); url.searchParams.set('fmt', ext);
+      tracks.push({ url: url.href, ext, language: track.languageCode, kind: track.kind === 'asr' ? 'automatic' : 'manual' });
+    }
+  }
+  const rank = track => {
+    const url = new URL(track.url);
+    const original = track.language?.endsWith('-orig') || track.language === meta.language;
+    return (url.searchParams.has('tlang') ? 10 : 0) + (original ? 0 : track.kind === 'manual' ? 1 : 2);
+  };
+  const sorted = tracks.sort((a,b) => rank(a) - rank(b) || Number(a.ext !== 'json3') - Number(b.ext !== 'json3'));
+  // Try different languages before alternate encodings of the same track.
+  const seen = new Set(), first = [], alternates = [];
+  for (const track of sorted) {
+    const key = `${track.kind}:${track.language}`;
+    (seen.has(key) ? alternates : first).push(track); seen.add(key);
+  }
+  return [...first, ...alternates].slice(0, 4);
+}
+export async function readCaptions(tracks, result, fetchSource = safeFetch) {
+  for (const track of tracks) {
     try {
-      const caption = await safeFetch(track.url, 1_000_000);
-      if (captionText(caption.bytes.toString())) {
-        result.transcript = caption.bytes.toString().slice(0,80000);
+      const caption = await fetchSource(track.url, 1_000_000);
+      const transcript = captionText(caption.bytes.toString(), true);
+      if (transcript) {
+        result.transcript = transcript.slice(0,80000);
+        result.transcriptLanguage = track.language ?? null;
         result.hasTranscript = true; return;
       }
     } catch { /* Try the next available caption track. */ }
@@ -144,10 +177,7 @@ export async function readPage(url, { captions = false, onMetadata = async () =>
     const result = { ...JSON.parse(stdout), url: page.url, hasTranscript: false, retrievalErrors: [] };
     await onMetadata(result);
     if (youtube && captions) {
-      const tracks = (result.captionTracks ?? []).sort((a,b) => Number(b.languageCode === 'en') - Number(a.languageCode === 'en'));
-      await readCaptions(tracks.flatMap(track => ['vtt','json3'].map(fmt => {
-        const url = new URL(track.baseUrl); url.searchParams.set('fmt', fmt); return { url: url.href };
-      })), result);
+      await readCaptions(captionTracks(result), result);
     }
     delete result.captionTracks;
     return result;
@@ -161,10 +191,20 @@ export async function readSocial(url, { withMedia = false, captions = false, onM
     const meta = JSON.parse(stdout);
     const result = { title: meta.title ?? null, creator: meta.uploader ?? null, description: meta.description ?? '', text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration,
       extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
-    const tracks = { ...meta.automatic_captions, ...meta.subtitles };
     await onMetadata(result);
-    const languages = Object.keys(tracks).sort((a,b) => (b === meta.language ? 2 : b.startsWith('en') ? 1 : 0) - (a === meta.language ? 2 : a.startsWith('en') ? 1 : 0));
-    if (captions || withMedia) await readCaptions(languages.flatMap(language => (tracks[language] ?? []).filter(t => ['vtt','json3'].includes(t.ext))), result);
+    if (captions || withMedia) {
+      await readCaptions(captionTracks(meta), result);
+      if (!result.hasTranscript && sourceName(url) === 'YouTube') {
+        try {
+          const page = await readPage(url, { captions: true });
+          result.retrievalErrors.push(...page.retrievalErrors);
+          if (page.hasTranscript) {
+            result.transcript = page.transcript; result.transcriptLanguage = page.transcriptLanguage;
+            result.hasTranscript = true;
+          }
+        } catch { result.retrievalErrors.push('The public video captions could not be read.'); }
+      }
+    }
     // Captions are deterministic evidence; only download/transcribe when they are unavailable.
     if (withMedia && !result.hasTranscript && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
       try {

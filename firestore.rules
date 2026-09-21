@@ -66,6 +66,7 @@ service cloud.firestore {
     match /users/{uid}/cookbook/{id} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create, update: if activeUser(uid)
+        && (!exists(/databases/$(database)/documents/users/$(uid)/cookbook/$(id)) || resource.data.get('deleted', false) == false)
         && request.resource.data.keys().hasOnly(['id', 'payload', 'updatedAt'])
         && request.resource.data.id == id && request.resource.data.payload is string
         && request.resource.data.payload.size() <= 180000 && request.resource.data.updatedAt is number;

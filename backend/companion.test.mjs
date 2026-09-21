@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeURL, publicAddress, sourceName, importInput, captionText, retrievalError, descriptionLinks } from './import-source.mjs';
+import { normalizeURL, publicAddress, sourceName, importInput, captionText, captionTracks, readCaptions, retrievalError, descriptionLinks } from './import-source.mjs';
 import { validateRecipe } from './recipe-agent.mjs';
 import { importTaskID, handleCompanion, runImport } from './companion.mjs';
 import { sessionUpdate } from './xai.mjs';
@@ -23,6 +24,7 @@ test('YouTube share variants identify one video and empty captions are not evide
   for(const raw of ['', 'WEBVTT\nKind: captions\nLanguage: en\n', '{"events":[]}', '<html>sign in</html>'])assert.equal(captionText(raw),'');
   assert.match(captionText('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nMix the dough.'),/Mix the dough/);
   assert.equal(captionText('{"events":[{"segs":[{"utf8":"Mix the dough."}]}]}'),'Mix the dough.');
+  assert.equal(captionText('{"events":[{"tStartMs":88510,"segs":[{"utf8":"冷水下锅。"}]}]}',true),'[88.51s] 冷水下锅。');
   assert.match(retrievalError({stderr:"Sign in to confirm you’re not a bot"}),/sign-in check/);
   assert.match(retrievalError({status:403}),/refused access/);
   assert.match(retrievalError({status:429}),/rate-limited/);
@@ -33,6 +35,54 @@ test('text imports need no URL and shared platform URLs retain their source',()=
   assert.deepEqual(importInput({text:'  Bread: flour, water. Mix and bake.  '}),{url:'',text:'Bread: flour, water. Mix and bake.',source:'Pasted text'});
   for(const [url,source] of [['https://youtube.com/shorts/abc','YouTube'],['https://youtu.be/abc','YouTube'],['https://www.instagram.com/reel/abc/','Instagram'],['https://vm.tiktok.com/abc','TikTok'],['https://xhslink.com/a/abc','RedNote']])assert.equal(importInput({url}).source,source);
   for(const body of [{},{text:'  '},{text:1},{text:'a'.repeat(40001)},{url:123},{url:'file:///tmp/x',text:'bread'}])assert.throws(()=>importInput(body));
+});
+
+test('original Chinese captions survive translated-track failures and duplicate formats',async()=>{
+  const formats=(language,translated=false)=>['vtt','json3'].map(ext=>({ext,url:`https://www.youtube.com/api/timedtext?lang=zh&fmt=${ext}${translated?'&tlang='+language:''}`}));
+  const tracks=captionTracks({automatic_captions:{en:formats('en',true),'en-US':formats('en-US',true),'zh-orig':formats('zh')}});
+  assert.equal(tracks[0].language,'zh-orig');
+  const chinese='把牛肉放入冷水中，煮开后撇去浮沫。';
+  const result={retrievalErrors:[]};
+  await readCaptions(tracks,result,async url=>({bytes:Buffer.from(url.includes('tlang=')?'':JSON.stringify({events:[{tStartMs:1000,segs:[{utf8:chinese}]}]}))}));
+  assert.equal(result.hasTranscript,true);assert.equal(result.transcriptLanguage,'zh-orig');assert.equal(result.transcript,'[1s] '+chinese);
+  const page=captionTracks({captionTracks:[{languageCode:'zh-CN',baseUrl:'https://www.youtube.com/api/timedtext?lang=zh-CN'},{languageCode:'en',baseUrl:'https://www.youtube.com/api/timedtext?lang=en'}]});
+  assert.deepEqual(page.map(t=>t.language),['zh-CN','en','zh-CN','en']);
+  const retry={retrievalErrors:[]};
+  await readCaptions(page,retry,async url=>({bytes:Buffer.from(url.includes('lang=zh-CN')?JSON.stringify({events:[{segs:[{utf8:chinese}]}]}):'')}));
+  assert.equal(retry.transcriptLanguage,'zh-CN');
+  // Manual captions must not overwrite the original automatic track with the same language.
+  assert.deepEqual(captionTracks({subtitles:{zh:formats('zh')},automatic_captions:{zh:formats('zh')}}).map(t=>t.kind),['manual','automatic','manual','automatic']);
+});
+
+test('recipe deletion is private, idempotent, preserves cooks, and permits a fresh import attempt',async t=>{
+  const savedKey=process.env.XAI_API_KEY;
+  process.env.XAI_API_KEY='test-only';
+  t.after(()=>{if(savedKey===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=savedKey;});
+  const url='https://www.youtube.com/watch?v=d31CCyGSGZA',id=createHash('sha256').update(url).digest('hex').slice(0,32),path=`users/owner/cookbook/${id}`,job=`users/owner/imports/${id}`;
+  const records=new Map([[path,{id,payload:'recipe'}],[path+'/versions/1',{payload:'recipe'}],[job,{id,status:'ready',attempt:3}],[`users/other/cookbook/${id}`,{payload:'other'}],['users/owner/cooks/cook',{payload:'history'}]]);
+  const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)}),update:async value=>records.set(path,{...records.get(path),...value})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value),update:(ref,value)=>records.set(ref.path,{...records.get(ref.path),...value}),delete:ref=>records.delete(ref.path)})};
+  async function call(id,uid='owner'){
+    let status;
+    await handleCompanion({url:'/companion/delete-recipe',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({id,uid:'other'}));}}, {writeHead:code=>status=code,end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid,firebase:{sign_in_provider:'password'}})}});
+    return status;
+  }
+  assert.equal(await call('../other'),400);
+  assert.equal(await call(id,'stranger'),200);assert.equal(records.get(path).payload,'recipe');
+  assert.equal(await call(id),200);assert.equal(await call(id),200);
+  assert.equal(records.get(path).deleted,true);assert.equal(records.has(path+'/versions/1'),false);
+  assert.equal(records.get(job).status,'canceled');assert.equal(records.get(job).attempt,3);
+  assert.equal(records.get(`users/other/cookbook/${id}`).payload,'other');assert.equal(records.get('users/owner/cooks/cook').payload,'history');
+  assert.notEqual(importTaskID('owner',id,3),importTaskID('owner',id,4));
+  // Exercise re-import's transaction without dispatching a real Cloud Task.
+  const savedQueue=process.env.IMPORT_TASK_QUEUE,savedInline=process.env.IMPORT_INLINE;
+  delete process.env.IMPORT_TASK_QUEUE;delete process.env.IMPORT_INLINE;
+  t.after(()=>{for(const [key,value] of [['IMPORT_TASK_QUEUE',savedQueue],['IMPORT_INLINE',savedInline]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+  await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}}, {writeHead:()=>{},end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'owner',firebase:{sign_in_provider:'password'}})}});
+  assert.equal(records.get(job).attempt,4,'Re-import must allocate a new attempt, not return the old ready job.');
+  assert.equal(records.get('aiBudget/imports').reservedCents,100);
+  records.delete(job);
+  await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}}, {writeHead:()=>{},end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'owner',firebase:{sign_in_provider:'password'}})}});
+  assert.ok(records.get(job).attempt>4,'Cleared history must not reuse an old worker attempt or task name.');
 });
 
 test('non-food and unknown sources stop before extraction; pasted food saves without web research',async t=>{
@@ -109,6 +159,10 @@ test('private cookbook, imports, cooks, and photos enforce account boundaries', 
   assert.equal(await document(cookbook,uid),200);
   assert.equal(await document(cookbook,'different-user'),403);
   assert.equal(await document(cookbook,'different-user',payload),403);
+  const removed=`users/${uid}/cookbook/deleted-recipe`;
+  assert.equal(await document(removed,'admin',{id:{stringValue:'deleted-recipe'},deleted:{booleanValue:true},updatedAt:{integerValue:'124'}}),200);
+  assert.equal(await document(removed,uid,{...payload,id:{stringValue:'deleted-recipe'}}),403,'A stale owner save must not resurrect a deleted recipe.');
+  assert.equal(await document(removed,'admin',{...payload,id:{stringValue:'deleted-recipe'}}),200,'The import worker may replace the tombstone on re-import.');
   for(const collection of ['imports','cooks']){
     const path=`users/${uid}/${collection}/${id}`;
     assert.equal(await document(path,uid,payload),403);
@@ -138,9 +192,11 @@ test('AI extraction logs provider, actual model and token usage without saving s
     assert.equal(url,'https://api.x.ai/v1/chat/completions');
     const body=JSON.parse(request.body);assert.equal(body.response_format.json_schema.strict,true);
     assert.match(body.messages[0].content,/Only ingredients and actionable steps are required/);
+    assert.match(body.messages[0].content,/translate the supported cooking sequence into English/);
+    assert.equal(JSON.parse(body.messages[1].content[1].text).evidence.transcript,'[88.51s] 冷水下锅。');
     return {ok:true,status:200,json:async()=>({id:'provider-request',model:'resolved-model-version',usage:{prompt_tokens:42,completion_tokens:12},choices:[{finish_reason:'stop',message:{content:JSON.stringify({outcome:'insufficient',reason:'Ingredients without cooking instructions.'})}}]})};
   };
-  const result=await extractRecipe(db,'owner','import1',{text:'private source content'},{allergies:'peanuts'});
+  const result=await extractRecipe(db,'owner','import1',{text:'private source content'.repeat(6000),transcript:'[88.51s] 冷水下锅。',transcriptLanguage:'zh-CN'},{allergies:'peanuts'});
   assert.equal(result.recipe.outcome,'insufficient');
   const record=records.get(`aiRuns/${result.runID}`);
   assert.equal(record.provider,'xai');assert.equal(record.model,'resolved-model-version');assert.equal(record.status,'completed');assert.equal(record.usage.prompt_tokens,42);
@@ -225,7 +281,7 @@ for(mode of ['written','html','research','captions','research-failed','broken-li
       if(mode==='research-failed')throw Error('provider unavailable');
       return {ok:true,status:200,json:async()=>({output:[{content:[{type:'output_text',text:'Original written recipe research'}]}]})};
     }
-    const evidence=JSON.parse(body.messages[1].content[0].text).evidence;
+    const evidence=Object.assign({},...body.messages[1].content.map(c=>JSON.parse(c.text).evidence));
     const scopeCall=body.response_format.json_schema.name==='recipe_scope';
     events.push(scopeCall?'scope':'extract');
     assert.equal(evidence.text,'Written ingredients');

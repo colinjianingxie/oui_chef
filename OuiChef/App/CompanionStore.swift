@@ -31,6 +31,7 @@ final class CompanionStore {
     var importing = false
     var focusedImportID: String?
     var asking = false
+    var deletingRecipeIDs: Set<String> = []
     var voiceEnabled = false
     var voiceStatus = "Tap to talk"
     var selectedRecipe: CompanionRecipe?
@@ -76,6 +77,7 @@ final class CompanionStore {
         listeners.forEach { $0.remove() }; listeners = []
         accountGeneration = UUID(); uid = accountID; archive = CompanionArchive(); imports = []
         selectedRecipe = nil; focusedImportID = nil; showImport = false; importing = false; showCooking = false; lastAnswer = nil; error = nil; notice = nil
+        deletingRecipeIDs = []
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Array(notificationIDs)); notificationIDs = []
         fileURL = nil
         #if DEBUG
@@ -114,6 +116,12 @@ final class CompanionStore {
                         }
                     } else {
                         for doc in docs {
+                            if collection == "cookbook", doc.data()["deleted"] as? Bool == true {
+                                self.archive.recipes.removeAll { $0.id == doc.documentID }
+                                self.archive.dirtyRecipes.remove(doc.documentID)
+                                if self.selectedRecipe?.id == doc.documentID { self.selectedRecipe = nil }
+                                continue
+                            }
                             guard let payload = doc.data()["payload"] as? String else { continue }
                             if collection == "cookbook", !self.archive.dirtyRecipes.contains(doc.documentID), let recipe = try? CompanionJSON.decode(CompanionRecipe.self, payload), (try? recipe.validate()) != nil {
                                 self.archive.recipes.removeAll { $0.id == recipe.id }; self.archive.recipes.append(recipe)
@@ -143,8 +151,26 @@ final class CompanionStore {
     }
     func setProfile(_ profile: CookProfile) { archive.profile = profile; archive.profileDirty = true; if persist() { sync() } }
     func saveRecipe(_ recipe: CompanionRecipe) {
+        guard !deletingRecipeIDs.contains(recipe.id) else { return }
         archive.recipes.removeAll { $0.id == recipe.id }; archive.recipes.append(recipe); archive.dirtyRecipes.insert(recipe.id)
         if persist() { sync() }
+    }
+    func deleteRecipe(_ id: String) async {
+        guard deletingRecipeIDs.insert(id).inserted else { return }
+        let generation = accountGeneration
+        defer { if accountGeneration == generation { deletingRecipeIDs.remove(id) } }
+        do {
+            // Finish an in-flight save before deleting so it cannot recreate this recipe.
+            await syncTask?.value
+            guard accountGeneration == generation else { return }
+            if !localTest { _ = try await request("delete-recipe", body: ["id": id]) }
+            archive.recipes.removeAll { $0.id == id }; archive.dirtyRecipes.remove(id)
+            imports.removeAll { $0.id == id || $0.recipeID == id }
+            if selectedRecipe?.id == id { selectedRecipe = nil }
+            persist()
+        } catch {
+            if accountGeneration == generation { self.error = "Could not delete the recipe. \(error.localizedDescription)" }
+        }
     }
     func start(_ recipe: CompanionRecipe) {
         do {
@@ -248,6 +274,7 @@ final class CompanionStore {
                     if snapshot == archive.profile { archive.profileDirty = false }
                 }
                 for id in archive.dirtyRecipes {
+                    guard !deletingRecipeIDs.contains(id) else { continue }
                     guard let recipe = archive.recipes.first(where: { $0.id == id }) else { continue }
                     try await db.document("users/\(uid)/cookbook/\(id)").setData(["id": id, "payload": try CompanionJSON.encode(recipe), "updatedAt": Self.now])
                     guard accountGeneration == generation, !Task.isCancelled else { return }

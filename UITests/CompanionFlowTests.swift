@@ -1,6 +1,27 @@
 import XCTest
 
 final class CompanionFlowTests: XCTestCase {
+    func testDeleteRecipeRequiresConfirmationAndKeepsCookingHistory() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
+        let tile = app.buttons["recipe-preview-pasta"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10)); tile.tap()
+        app.buttons["delete-recipe"].tap()
+        XCTAssertTrue(app.alerts.buttons["Cancel"].waitForExistence(timeout: 3))
+        capture("Confirm recipe deletion", app); app.alerts.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Start cooking"].exists)
+        app.buttons["Start cooking"].tap(); app.buttons["Let’s cook"].tap()
+        XCTAssertTrue(app.buttons["Cooking options"].waitForExistence(timeout: 5))
+        app.buttons["Save and leave cooking"].tap()
+        XCTAssertTrue(tile.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !tile.isHittable { app.swipeUp() }
+        tile.tap()
+        app.buttons["delete-recipe"].tap()
+        app.alerts.buttons["Delete recipe"].tap()
+        XCTAssertTrue(tile.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Continue cooking →"].exists)
+        capture("Recipe deleted, cooking attempt preserved", app)
+    }
     private func capture(_ name: String, _ app: XCUIApplication) {
         let image = XCTAttachment(screenshot: app.screenshot()); image.name = name; image.lifetime = .keepAlways; add(image)
     }

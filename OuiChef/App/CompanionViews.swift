@@ -509,6 +509,7 @@ struct CompanionRecipeView: View {
     @State private var checked: Set<String> = []
     @State private var questions = false
     @State private var acceptedWarnings = false
+    @State private var confirmDelete = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -583,7 +584,16 @@ struct CompanionRecipeView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { if preparation { preparation = false } else { dismiss() } } label: { Image(systemName: "arrow.left") }.accessibilityLabel("Back") }
                 ToolbarItem(placement: .topBarTrailing) { Button { recipe.favorite.toggle(); store.saveRecipe(recipe) } label: { Image(systemName: recipe.favorite ? "heart.fill" : "heart") }.accessibilityLabel("Favorite recipe") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
+                        .accessibilityLabel("Delete recipe").accessibilityIdentifier("delete-recipe")
+                }
             }
+            .disabled(store.deletingRecipeIDs.contains(recipe.id))
+            .alert("Delete \(recipe.title)?", isPresented: $confirmDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete recipe", role: .destructive) { Task { await store.deleteRecipe(recipe.id) } }
+            } message: { Text("This removes the recipe from your cookbook. Your cooking history and photos are kept.") }
         }.sheet(isPresented: $questions) { RecipeQuestionView(store: store, recipe: recipe) }
     }
     private func ingredientList(_ values: [RecipeIngredient]) -> some View {

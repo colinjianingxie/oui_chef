@@ -94,12 +94,14 @@ export async function runImport(db,uid,id,attempt) {
       if(media) {
         retrievalErrors.push(...media.retrievalErrors);
         evidence.transcript=media.transcript??'';
+        evidence.transcriptLanguage=media.transcriptLanguage??null;
         evidence.images=media.images??[];
         if(media.audio) {
           try {evidence.transcript+='\nAudio transcript:\n'+await transcribe(db,uid,id,media.audio);}
           catch {retrievalErrors.push('Audio transcription was unavailable.');}
         }
         retrieval.hasTranscript=!!evidence.transcript;
+        retrieval.transcriptLanguage=evidence.transcriptLanguage;
         if(evidence.transcript || evidence.images.length) {
           scope=await classifySource(db,uid,id,evidence);
           await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
@@ -167,7 +169,8 @@ export async function handleCompanion(req,res,{db,auth}) {
         const budgetRef=db.doc('aiBudget/imports'),budget=await tx.get(budgetRef);
         const allocated=(budget.data()?.reservedCents??0)+100;
         if(allocated>Number(process.env.IMPORT_BUDGET_CENTS??1500))throw new Error('The beta import allowance has been reached.');
-        const attempt=(old?.attempt??0)+1;
+        // Cleared history must not reuse a Cloud Tasks name or match an old worker.
+        const attempt=(old?.attempt??Date.now())+1;
         tx.set(budgetRef,{reservedCents:allocated,updatedAt:Date.now()});
         tx.set(ref,{id,url,source,text,status:'queued',message:'Waiting to read your recipe…',createdAt:Date.now(),attempt,reservedCents:100});
         return {id,attempt,existing:false};
@@ -178,6 +181,21 @@ export async function handleCompanion(req,res,{db,auth}) {
     if(req.url==='/companion/cancel') {
       if(!allowedID(body.id))throw new Error('Invalid import.');
       await db.doc(`users/${uid}/imports/${body.id}`).update({status:'canceled',message:'Import canceled.'});send(res,200,{ok:true});return;
+    }
+    if(req.url==='/companion/delete-recipe') {
+      if(!allowedID(body.id))throw new Error('Invalid recipe.');
+      await db.runTransaction(async tx=>{
+        const recipe=db.doc(`users/${uid}/cookbook/${body.id}`),job=db.doc(`users/${uid}/imports/${body.id}`);
+        const [saved,imported,deleted]=await Promise.all([tx.get(recipe),tx.get(job),tx.get(db.doc(`deletedAccounts/${uid}`))]);
+        if(deleted.exists)throw new Error('Account deleted.');
+        if(!saved.exists)return;
+        // A tombstone prevents stale/offline clients from restoring a deleted recipe.
+        tx.set(recipe,{id:body.id,deleted:true,updatedAt:Date.now()});
+        tx.delete(recipe.collection('versions').doc('1'));
+        if(imported.exists)tx.update(job,{status:'canceled',message:'Recipe removed from your cookbook.',updatedAt:Date.now()});
+      });
+      // Cooking attempts keep their recipe snapshots and cover images.
+      send(res,200,{ok:true});return;
     }
     if(req.url==='/companion/question') {
       const budgetRef=db.doc(`aiQuestionLimits/${uid}`);
