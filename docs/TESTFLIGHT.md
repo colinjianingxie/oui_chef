@@ -1,5 +1,17 @@
 # TestFlight
 
+## September 21, 2026 — layered recipe parsing, build 11
+
+Oui Chef AI **1.0 (11)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **22:21:39 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `60a58f6`, pushed to `main`. Upload ID: `93175c7a-415a-4876-b0b3-63c9d6843fb5`. This build shows the layered flow: metadata and original transcript, food classification, translation and video inspection, normalized ingredients and steps, then cookbook save. Its matching backend revision, `oui-chef-voice-layered-60a58f6`, stops uncertain and non-food sources before translation/media work and gives food sources one extraction pass with all available written, transcript, translation, and frame evidence.
+
+Verification: all 30 Swift core tests, all 29 runnable backend tests, and the focused simulator import-progress journey passed; three emulator-only backend tests were skipped. Health returned 200, unauthenticated import returned 401, and unsigned worker access returned 403 after deployment. Build 11 was installed on Colin’s iPhone; automatic launch was denied because the phone was locked.
+
+Archive and app/Share Extension dSYMs: `/Users/xie/Library/Developer/Xcode/Archives/2026-09-21/OuiChef-1.0-layered-60a58f6.xcarchive`. Xcode repeated the existing missing-dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc; upload succeeded, but crash frames inside those dependencies may have limited symbols.
+
+No tester assignments, Beta App Review submissions, or App Store release submissions were changed.
+
 ## September 21, 2026 — import evidence and video frames, build 10
 
 Oui Chef AI **1.0 (10)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **21:37:23 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
