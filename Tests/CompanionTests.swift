@@ -15,10 +15,12 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(profile.allergyStatus, .noneKnown)
         profile.select(["allergen.peanuts"], for: .allergies)
         XCTAssertEqual(profile.allergyStatus, .selected)
+        profile.voiceLanguage = "Mandarin"
         profile.select(["gluten_free"], for: .restrictions)
         profile.select(["air_fryer"], for: .equipment)
         let encoded = try CompanionJSON.encode(profile)
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any])
+        XCTAssertEqual(payload["voiceLanguage"] as? String, "Mandarin")
         XCTAssertEqual(payload["allergies"] as? [String], ["Peanuts"])
         XCTAssertEqual(payload["restrictions"] as? [String], ["Gluten-free"])
         XCTAssertEqual(payload["equipment"] as? [String], ["Air fryer"])
@@ -32,6 +34,7 @@ final class CompanionTests: XCTestCase {
     func testOldPreferencesRemainExplicitUntilReviewed() throws {
         let old = #"{"onboardingComplete":true,"allergies":"peanuts and an unusual allergy","dislikes":"cilantro","equipment":"no oven","diet":"Other"}"#
         let migrated = try CompanionJSON.decode(CookProfile.self, old)
+        XCTAssertEqual(migrated.voiceLanguage, "English")
         XCTAssertTrue(migrated.onboardingComplete)
         XCTAssertTrue(migrated.needsPreferenceReview)
         XCTAssertEqual(migrated.allergyStatus, .unspecified)
@@ -42,6 +45,21 @@ final class CompanionTests: XCTestCase {
         reviewed.select(["allergen.peanuts"], for: .allergies)
         reviewed.previousPreferencesPendingReview = [:]
         XCTAssertFalse(try CompanionJSON.decode(CookProfile.self, CompanionJSON.encode(reviewed)).needsPreferenceReview)
+    }
+
+    func testImportProgressDecodesOldJobsAndNewPreviews() throws {
+        let old = #"{"id":"job","url":"https://youtu.be/W_-D8PZwtSY","status":"transcribing","message":"Reading captions","createdAt":0,"source":"YouTube"}"#
+        var item = try CompanionJSON.decode(RecipeImport.self, old)
+        XCTAssertTrue(item.running)
+        XCTAssertEqual(item.progressStage, 1)
+        item.status = "checking"; item.stage = 4; item.attempt = 2
+        item.previewTitle = "Matcha bread"; item.previewIngredients = ["415 g bread flour"]
+        let saved = try CompanionJSON.decode(RecipeImport.self, CompanionJSON.encode(item))
+        XCTAssertEqual(saved.progressStage, 4)
+        XCTAssertEqual(saved.attempt, 2)
+        XCTAssertEqual(saved.previewIngredients, ["415 g bread flour"])
+        item.status = "skipped"
+        XCTAssertFalse(item.running)
     }
 
     func recipe() -> CompanionRecipe {

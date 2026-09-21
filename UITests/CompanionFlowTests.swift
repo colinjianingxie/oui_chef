@@ -10,6 +10,24 @@ final class CompanionFlowTests: XCTestCase {
         done.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
     }
+    func testImportProgressStaysOpenAndAppearsInCookbook() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-import-progress"]; app.launch()
+        let tile = app.buttons["import-tile-preview-import"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !tile.isHittable { app.swipeUp() }
+        tile.tap()
+        XCTAssertTrue(app.staticTexts["Your recipe is\ncoming together."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Read the written recipe"].exists)
+        XCTAssertTrue(app.staticTexts["Ingredients"].exists)
+        XCTAssertTrue(app.buttons["Close"].exists)
+        XCTAssertFalse(app.buttons["make-recipe"].exists)
+        capture("Import progress and recipe placeholders", app)
+        app.buttons["Close"].tap(); app.buttons["tab-Cookbook"].tap()
+        XCTAssertTrue(tile.waitForExistence(timeout: 5))
+        capture("Import in the cookbook", app)
+    }
+
     func testImportModesAndButtonLayout() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()

@@ -29,6 +29,7 @@ final class CompanionStore {
     var notice: String?
     var loading = false
     var importing = false
+    var focusedImportID: String?
     var asking = false
     var voiceEnabled = false
     var voiceStatus = "Tap to talk"
@@ -74,7 +75,7 @@ final class CompanionStore {
         stopVoice(); syncTask?.cancel(); syncTask = nil
         listeners.forEach { $0.remove() }; listeners = []
         accountGeneration = UUID(); uid = accountID; archive = CompanionArchive(); imports = []
-        selectedRecipe = nil; showCooking = false; lastAnswer = nil; error = nil; notice = nil
+        selectedRecipe = nil; focusedImportID = nil; showImport = false; importing = false; showCooking = false; lastAnswer = nil; error = nil; notice = nil
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Array(notificationIDs)); notificationIDs = []
         fileURL = nil
         #if DEBUG
@@ -109,7 +110,7 @@ final class CompanionStore {
                         self.imports = docs.compactMap { doc in
                             let d = doc.data()
                             guard let url = d["url"] as? String, let status = d["status"] as? String else { return nil }
-                            return RecipeImport(id: doc.documentID, url: url, status: status, message: d["message"] as? String ?? "", recipeID: d["recipeID"] as? String, createdAt: d["createdAt"] as? Double ?? 0, source: d["source"] as? String ?? "Website")
+                            return RecipeImport(id: doc.documentID, url: url, status: status, message: d["message"] as? String ?? "", recipeID: d["recipeID"] as? String, createdAt: d["createdAt"] as? Double ?? 0, source: d["source"] as? String ?? "Website", stage: d["stage"] as? Int, attempt: d["attempt"] as? Int, previewTitle: d["previewTitle"] as? String, previewCreator: d["previewCreator"] as? String, previewSummary: d["previewSummary"] as? String, previewIngredients: d["previewIngredients"] as? [String], previewSteps: d["previewSteps"] as? [String])
                         }
                     } else {
                         for doc in docs {
@@ -199,7 +200,16 @@ final class CompanionStore {
         guard let url, !url.isEmpty || !text.isEmpty else { error = "Paste a recipe link or ingredients and steps."; return }
         guard text.count <= 40000 else { error = "Keep recipe text under 40,000 characters."; return }
         importing = true; defer { importing = false }
-        do { _ = try await request("import", body: ["url": url, "text": text]); pendingURL = "" }
+        do {
+            let result = try await request("import", body: ["url": url, "text": text])
+            guard let id = result["id"] as? String else { throw CookingError.invalid("The import could not be started. Please retry.") }
+            focusedImportID = id
+            if result["existing"] as? Bool != true { imports.removeAll { $0.id == id && $0.attempt != result["attempt"] as? Int } }
+            if !imports.contains(where: { $0.id == id }) {
+                imports.insert(RecipeImport(id: id, url: url, status: "queued", message: "Waiting to read your recipe…", createdAt: Self.now, source: url.isEmpty ? "Pasted text" : "Recipe link", attempt: result["attempt"] as? Int), at: 0)
+            }
+            pendingURL = ""
+        }
         catch { self.error = error.localizedDescription }
     }
     func cancelImport(_ id: String) async { do { _ = try await request("cancel", body: ["id": id]) } catch { self.error = error.localizedDescription } }
@@ -218,7 +228,7 @@ final class CompanionStore {
             pendingURL = url; showImport = true
             // Remove only after the backend accepts this particular item.
             Task {
-                do { _ = try await request("import", body: ["url": url]); try FileManager.default.removeItem(at: file); pendingURL = ""; consumeSharedLinks() }
+                do { let result = try await request("import", body: ["url": url]); focusedImportID = result["id"] as? String; try FileManager.default.removeItem(at: file); pendingURL = ""; consumeSharedLinks() }
                 catch { notice = "Your shared link is saved. Tap Import to try again." }
             }
         }
@@ -424,6 +434,9 @@ final class CompanionStore {
             preparation: ["Peel and finely mince the garlic.", "Grate the parmesan."],
             steps: [RecipeStep(id: "boil", title: "Get the pasta going", instruction: "Bring a large pan of salted water to a boil. Add the pasta and cook according to the packet.", stage: "Cook the pasta", ingredients: [StepIngredient(ingredientID: "pasta", quantity: "225 g")], visualCue: "The pasta should be tender with a little bite."), RecipeStep(id: "garlic", title: "Sauté the garlic", instruction: "Warm the olive oil over medium heat. Add the garlic and stir gently until fragrant and just golden.", stage: "Make the sauce", ingredients: [StepIngredient(ingredientID: "garlic", quantity: "6 cloves, minced"), StepIngredient(ingredientID: "oil", quantity: "2 tbsp")], durationSeconds: 90, visualCue: "Lightly golden, not brown."), RecipeStep(id: "finish", title: "Bring it all together", instruction: "Add the cream, then stir in the parmesan and drained pasta. Loosen with a splash of pasta water if needed.", stage: "Finish & serve", ingredients: [StepIngredient(ingredientID: "cream", quantity: "1 cup"), StepIngredient(ingredientID: "parmesan", quantity: "½ cup")], visualCue: "A silky sauce that coats every strand.")], reviewed: true)
         archive.recipes = [recipe]
+        if ProcessInfo.processInfo.arguments.contains("--companion-import-progress") {
+            imports = [RecipeImport(id: "preview-import", url: "https://youtu.be/W_-D8PZwtSY", status: "fetching", message: "Reading the description and linked original recipe…", createdAt: Self.now, source: "YouTube", stage: 1, previewTitle: "Matcha Streusel Bread", previewCreator: "All Cooking Stuff")]
+        }
     }
     #endif
 }

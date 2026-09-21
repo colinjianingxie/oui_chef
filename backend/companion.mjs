@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
-import { importInput, readPage, readSocial, safeFetch } from './import-source.mjs';
+import { importInput, readPage, readSocial, safeFetch, retrievalError, descriptionLinks } from './import-source.mjs';
 import { classifySource, extractRecipe, transcribe, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
@@ -24,62 +24,106 @@ export async function runImport(db,uid,id,attempt) {
     const [doc,deleted]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`))]),data=doc.data();
     if(deleted.exists)return null;
     if(!data||data.attempt!==attempt||data.status!=='queued')return null;
-    tx.update(ref,{status:'fetching',message:'Reading the original source…',startedAt:Date.now()});return data;
+    tx.update(ref,{status:'fetching',stage:0,message:'Reading the original source…',startedAt:Date.now()});return data;
   });
   if(!claimed)return;
-  const progress=async(status,message)=>{
+  const progress=async(status,message,stage,details={})=>{
     await db.runTransaction(async tx=>{
       const current=await tx.get(ref);if(!current.exists||current.data()?.status==='canceled'||current.data()?.attempt!==attempt)throw new Error('Import canceled.');
-      tx.update(ref,{status,message,updatedAt:Date.now()});
+      tx.update(ref,{status,message,...(stage == null ? {} : {stage}),...details,updatedAt:Date.now()});
     });
   };
   try {
     const profileDoc=await db.doc(`users/${uid}/settings/cooking`).get();
     const profile=JSON.parse(profileDoc.data()?.payload??'{}');
-    let evidence={url:claimed.url,text:'',images:[],mediaAttempted:true}, retrievalErrors=[];
+    let evidence={url:claimed.url,text:'',images:[],mediaAttempted:false}, retrievalErrors=[];
     let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
+    const metadata = async source => progress('fetching','Found the source. Reading its written recipe…',0,{
+      previewTitle: typeof source.title === 'string' ? source.title.slice(0,500) : null,
+      previewCreator: typeof source.creator === 'string' ? source.creator.slice(0,200) : null
+    });
     if(claimed.url) {
       if(claimed.source==='Website') {
-        try {evidence={...evidence,...await readPage(claimed.url)};}catch{retrievalErrors.push('The public page could not be read.');}
+        try {evidence={...evidence,...await readPage(claimed.url,{onMetadata:metadata})};}catch{retrievalErrors.push('The public page could not be read.');}
       } else {
-        await progress('transcribing','Reading the post and retrieving available captions or audio…');
         try {
-          const social=await readSocial(claimed.url,true);
+          const social=await readSocial(claimed.url,{onMetadata:metadata});
           evidence={...evidence,...social};
-          retrieval={source:claimed.source,method:'yt-dlp',extractor:social.extractor,hasTranscript:social.hasTranscript};
-          retrievalErrors.push(...social.retrievalErrors);
-          if(social.audio) {
-            try { evidence.text+='\nAudio transcript:\n'+await transcribe(db,uid,id,social.audio); retrieval.hasTranscript=true; }
-            catch { retrievalErrors.push('Audio transcription was unavailable.'); }
-          }
-          delete evidence.audio;
-        } catch {
-          retrievalErrors.push('The platform did not expose captions or media metadata.');
+          retrieval={source:claimed.source,method:'yt-dlp',extractor:social.extractor,hasTranscript:false};
+        } catch(error) {
+          retrievalErrors.push(retrievalError(error));
           retrieval.method='html_fallback';
-          try {evidence={...evidence,...await readPage(claimed.url)};}catch{retrievalErrors.push('The public page could not be read.');}
+          try {evidence={...evidence,...await readPage(claimed.url,{onMetadata:metadata})};}
+          catch{retrievalErrors.push('The public page could not be read.');}
         }
+      }
+      await progress('fetching','Reading the description and linked original recipes…',1);
+      evidence.linkedRecipes=[];
+      for(const url of descriptionLinks(evidence.description)) {
+        try {
+          const page=await readPage(url);
+          evidence.linkedRecipes.push({url:page.url,title:page.title,text:page.text.slice(0,20000),structured:page.structured});
+        } catch {retrievalErrors.push('A description link could not be read.');}
       }
     }
     if(claimed.text)evidence.text+='\nUser-supplied recipe text:\n'+claimed.text;
-    await progress('checking','Checking that this is a food recipe…');
-    const scope=await classifySource(db,uid,id,evidence);
-    await ref.update({retrieval,retrievalErrors,scope:scope.scope,scopeRunID:scope.runID});
-    if(scope.scope!=='food') {
-      await progress('skipped',scope.scope==='non_food'?'Oui Chef only imports food and drink recipes. This source is outside cooking.':'We could not find enough food-related information. Try pasting the ingredients and cooking steps.');
-      await ref.update({finishedAt:Date.now()});return;
-    }
-    await progress('extracting','Finding ingredients and cooking steps…');
-    let result=await extractRecipe(db,uid,id,evidence,profile);
-    if(result.recipe.outcome==='insufficient' && claimed.url) {
-      await progress('checking','Checking for a linked recipe or missing context…');
-      evidence.supplementalResearch=await researchSource(db,uid,id,claimed.url,result.recipe.reason);
+    await progress('checking','Checking that this is a food recipe…',2,{retrieval,retrievalErrors});
+    let scope=await classifySource(db,uid,id,evidence), result;
+    await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
+    if(scope.scope==='food') {
+      await progress('extracting','Organizing the written ingredients and cooking steps…',3);
       result=await extractRecipe(db,uid,id,evidence,profile);
+      if(result.recipe.outcome==='insufficient' && claimed.url) {
+        await progress('extracting','Looking for the creator’s original written recipe…',3,{extractionReason:result.recipe.reason});
+        try {
+          evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result.recipe.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);
+        } catch {retrievalErrors.push('The original written recipe search was unavailable.');}
+        if(evidence.writtenResearch) result=await extractRecipe(db,uid,id,evidence,profile);
+      }
+    }
+    if(claimed.url && claimed.source!=='Website' && (scope.scope==='unknown' || result?.recipe.outcome==='insufficient')) {
+      await progress('transcribing','Filling missing details from captions or audio…',3);
+      evidence.mediaAttempted=true;
+      let media;
+      try {media=await readSocial(claimed.url,{captions:true,withMedia:true});}
+      catch(error) {
+        retrievalErrors.push(retrievalError(error));
+        try {media=await readPage(claimed.url,{captions:true});}
+        catch {retrievalErrors.push('The public video captions could not be read.');}
+      }
+      if(media) {
+        retrievalErrors.push(...media.retrievalErrors);
+        evidence.transcript=media.transcript??'';
+        evidence.images=media.images??[];
+        if(media.audio) {
+          try {evidence.transcript+='\nAudio transcript:\n'+await transcribe(db,uid,id,media.audio);}
+          catch {retrievalErrors.push('Audio transcription was unavailable.');}
+        }
+        retrieval.hasTranscript=!!evidence.transcript;
+        if(evidence.transcript || evidence.images.length) {
+          scope=await classifySource(db,uid,id,evidence);
+          await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
+          if(scope.scope==='food') {
+            await progress('extracting','Completing the recipe while preserving its written instructions…',3);
+            result=await extractRecipe(db,uid,id,evidence,profile);
+          }
+        }
+      }
+    }
+    await ref.update({retrieval,retrievalErrors});
+    if(scope.scope!=='food') {
+      await progress('skipped',scope.scope==='non_food'?'Oui Chef only imports food and drink recipes. This source is outside cooking.':`We could not read enough of this source to identify a recipe. ${retrievalErrors[0]??''} Try pasting the ingredients and cooking steps.`);
+      await ref.update({finishedAt:Date.now()});return;
     }
     if(result.recipe.outcome!=='recipe') {
       await progress('skipped',result.recipe.reason?.slice(0,500)||'There were not enough ingredients and cooking instructions to save a recipe.');
       await ref.update({retrievalErrors,finishedAt:Date.now()});return;
     }
-    await progress('checking','Putting your recipe together…');
+    await progress('checking','Saving your recipe and finishing its details…',4,{
+      previewTitle:result.recipe.title,previewSummary:result.recipe.summary??null,
+      previewIngredients:result.recipe.ingredients.map(item=>`${item.quantity} ${item.name}`),
+      previewSteps:result.recipe.steps.map(step=>step.title||step.instruction),extractionRunID:result.runID
+    });
     const {outcome,reason,...content}=result.recipe;
     let imagePath=null;
     if(evidence.imageURL){try {const image=await safeFetch(new URL(evidence.imageURL,claimed.url).href,2_000_000);if(/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')){imagePath=`users/${uid}/recipeMedia/${id}/cover-${attempt}`;await getStorage().bucket().file(imagePath).save(image.bytes,{metadata:{contentType:image.headers['content-type']}});}}catch{/* The recipe remains usable without artwork. */}}
@@ -91,7 +135,7 @@ export async function runImport(db,uid,id,attempt) {
       const recipeRef=db.doc(`users/${uid}/cookbook/${id}`);
       tx.set(recipeRef,{id,payload,updatedAt:Date.now()});
       tx.set(recipeRef.collection('versions').doc('1'),{payload,createdAt:Date.now(),modelRunID:result.runID});
-      tx.update(ref,{status:'ready',message:'Your recipe is ready.',recipeID:id,finishedAt:Date.now(),retrievalErrors});
+      tx.update(ref,{status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,finishedAt:Date.now(),retrievalErrors});
       return true;
     });
     if(!saved&&imagePath)await getStorage().bucket().file(imagePath).delete({ignoreNotFound:true});

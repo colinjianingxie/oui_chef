@@ -88,6 +88,7 @@ struct CookProfile: Codable, Equatable {
     var servings = 2
     var householdSize = 2
     var units = "Metric"
+    var voiceLanguage = "English"
     var keepAwake = true
     var gentleGuidance = true
     // Preserve earlier free text for both the user and AI until the user explicitly reviews it.
@@ -115,7 +116,7 @@ struct CookProfile: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case profileVersion, onboardingComplete, diet, allergyIDs, restrictionIDs, dislikedFoodIDs, equipmentIDs, allergyStatus
-        case spice, salt, experience, servings, householdSize, units, keepAwake, gentleGuidance, previousPreferencesPendingReview
+        case spice, salt, experience, servings, householdSize, units, voiceLanguage, keepAwake, gentleGuidance, previousPreferencesPendingReview
         case allergies, restrictions, dislikes, equipment
     }
     init(from decoder: Decoder) throws {
@@ -136,6 +137,7 @@ struct CookProfile: Codable, Equatable {
         servings = try c.decodeIfPresent(Int.self, forKey: .servings) ?? 2
         householdSize = try c.decodeIfPresent(Int.self, forKey: .householdSize) ?? 2
         units = try c.decodeIfPresent(String.self, forKey: .units) ?? "Metric"
+        voiceLanguage = try c.decodeIfPresent(String.self, forKey: .voiceLanguage) ?? "English"
         keepAwake = try c.decodeIfPresent(Bool.self, forKey: .keepAwake) ?? true
         gentleGuidance = try c.decodeIfPresent(Bool.self, forKey: .gentleGuidance) ?? true
         previousPreferencesPendingReview = try c.decodeIfPresent([String: String].self, forKey: .previousPreferencesPendingReview) ?? [:]
@@ -164,6 +166,7 @@ struct CookProfile: Codable, Equatable {
         try c.encode(servings, forKey: .servings)
         try c.encode(householdSize, forKey: .householdSize)
         try c.encode(units, forKey: .units)
+        try c.encode(voiceLanguage, forKey: .voiceLanguage)
         try c.encode(keepAwake, forKey: .keepAwake)
         try c.encode(gentleGuidance, forKey: .gentleGuidance)
         try c.encode(previousPreferencesPendingReview, forKey: .previousPreferencesPendingReview)

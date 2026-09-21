@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const exec = promisify(execFile);
 // Source tools do not inherit API keys or cloud credential environment variables.
 const toolEnvironment = { PATH: process.env.PATH, LANG: 'C.UTF-8' };
@@ -28,6 +29,10 @@ export function normalizeURL(raw) {
   const url = new URL(raw);
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || (url.port && url.port !== '443') || isIP(url.hostname) || !url.hostname.includes('.')) throw new Error('Use a public recipe link.');
   url.protocol = 'https:'; url.hash = '';
+  if (sourceName(url.href) === 'YouTube') {
+    const id = url.hostname === 'youtu.be' ? url.pathname.split('/')[1] : url.pathname === '/watch' ? url.searchParams.get('v') : url.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1];
+    if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) return `https://www.youtube.com/watch?v=${id}`;
+  }
   for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid|igsh|si$)/.test(key)) url.searchParams.delete(key);
   return url.href;
 }
@@ -38,6 +43,23 @@ export function importInput(body) {
   if (!raw && !text) throw new Error('Paste a recipe link or ingredients and steps.');
   const url = raw ? normalizeURL(raw) : '';
   return { url, text, source: url ? sourceName(url) : 'Pasted text' };
+}
+export function descriptionLinks(description = '') {
+  const candidates = new Map();
+  for (const line of description.split('\n')) {
+    for (const match of line.matchAll(/https?:\/\/[^\s<>"']+/g)) {
+      try {
+        let url = new URL(match[0].replace(/[.,;!?)\]。！，；）]+$/u, ''));
+        if (sourceName(url.href) === 'YouTube' && url.pathname === '/redirect') url = new URL(url.searchParams.get('q') ?? url.searchParams.get('url'));
+        const normalized = normalizeURL(url.href);
+        if (sourceName(normalized) !== 'Website') continue;
+        const priority = /recipe|ingredients|instructions|食谱|食譜|配方|做法|レシピ/i.test(line) ? 1 : 0;
+        candidates.set(normalized, Math.max(priority, candidates.get(normalized) ?? 0));
+      } catch { /* Description links must pass the same public URL checks as the original source. */ }
+    }
+  }
+  // ponytail: read at most three description links; creator research handles missing or truncated links.
+  return [...candidates].sort((a,b) => b[1] - a[1]).slice(0,3).map(([url]) => url);
 }
 async function resolvePublic(host) {
   const records = await lookup(host, { all: true, family: 4 });
@@ -59,7 +81,7 @@ export async function safeFetch(raw, limit = 3_000_000, redirects = 0) {
     req.on('error', reject); req.end();
   });
   if ([301,302,303,307,308].includes(result.status) && result.headers.location) return safeFetch(new URL(result.headers.location, url).href, limit, redirects + 1);
-  if (result.status !== 200) throw new Error('Source could not be read. It may require a login.');
+  if (result.status !== 200) throw Object.assign(new Error('Source could not be read. It may require a login.'), { status: result.status });
   return result;
 }
 // Media extraction's every HTTPS connection also resolves/pins a public IP.
@@ -82,28 +104,67 @@ async function mediaProxy() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}`, close() { sockets.forEach(s => s.destroy()); server.close(); } };
 }
-export async function readPage(url) {
+export function retrievalError(error) {
+  const detail = String(error?.stderr ?? error?.message ?? '');
+  if (/sign in.*(bot|confirm)|LOGIN_REQUIRED/i.test(detail)) return 'YouTube requested a sign-in check from the import server.';
+  if (error?.status === 429 || /429|too many requests/i.test(detail)) return 'The source rate-limited the import server.';
+  if (error?.name === 'TimeoutError' || /timed? ?out|ETIMEDOUT/i.test(detail) || error?.killed) return 'Source retrieval timed out.';
+  if (error?.status === 403 || /403|forbidden/i.test(detail)) return 'The source refused access to its media.';
+  if (/format.*not available|no video formats/i.test(detail)) return 'Video formats were unavailable; trying the public description and captions.';
+  return 'The source extractor could not retrieve media metadata.';
+}
+export function captionText(raw) {
+  if (raw.trim().startsWith('{')) {
+    try { return JSON.parse(raw).events?.map(e => (e.segs ?? []).map(s => s.utf8 ?? '').join('')).filter(s => s.trim()).join('\n') ?? ''; } catch { return ''; }
+  }
+  if (!raw.trim().startsWith('WEBVTT')) return '';
+  const lines = raw.split('\n').filter(line => line.trim() && !/^(WEBVTT|Kind:|Language:|NOTE|\d+$)|-->/.test(line));
+  return lines.join('\n').replace(/<[^>]*>/g, '').trim();
+}
+async function readCaptions(tracks, result) {
+  for (const track of tracks.slice(0, 4)) {
+    try {
+      const caption = await safeFetch(track.url, 1_000_000);
+      if (captionText(caption.bytes.toString())) {
+        result.transcript = caption.bytes.toString().slice(0,80000);
+        result.hasTranscript = true; return;
+      }
+    } catch { /* Try the next available caption track. */ }
+  }
+  result.retrievalErrors.push(tracks.length ? 'Caption tracks were listed, but returned no readable captions.' : 'No caption tracks were exposed by the source.');
+}
+export async function readPage(url, { captions = false, onMetadata = async () => {} } = {}) {
   const page = await safeFetch(url);
   if (!/text\/|json|xml/.test(page.headers['content-type'] ?? 'text/html')) throw new Error('Share a recipe page or video post.');
   const directory = await mkdtemp(join(tmpdir(), 'oui-page-'));
   try {
     const file = join(directory, 'page.html'); await writeFile(file, page.bytes);
-    const { stdout } = await exec('python3', [new URL('./tools/extract.py', import.meta.url).pathname, file], { timeout: 15000, maxBuffer: 500000, env: toolEnvironment });
-    return { ...JSON.parse(stdout), url: page.url };
+    const youtube = sourceName(url) === 'YouTube';
+    const { stdout } = await exec('python3', [fileURLToPath(new URL('./tools/extract.py', import.meta.url)), file, ...(youtube ? ['--youtube'] : [])], { timeout: 15000, maxBuffer: 500000, env: toolEnvironment });
+    const result = { ...JSON.parse(stdout), url: page.url, hasTranscript: false, retrievalErrors: [] };
+    await onMetadata(result);
+    if (youtube && captions) {
+      const tracks = (result.captionTracks ?? []).sort((a,b) => Number(b.languageCode === 'en') - Number(a.languageCode === 'en'));
+      await readCaptions(tracks.flatMap(track => ['vtt','json3'].map(fmt => {
+        const url = new URL(track.baseUrl); url.searchParams.set('fmt', fmt); return { url: url.href };
+      })), result);
+    }
+    delete result.captionTracks;
+    return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
-export async function readSocial(url, withMedia = false) {
+export async function readSocial(url, { withMedia = false, captions = false, onMetadata = async () => {} } = {}) {
   if (sourceName(url) === 'Website') return { text: '', images: [] };
   const proxy = await mediaProxy(), directory = await mkdtemp(join(tmpdir(), 'oui-media-'));
   try {
-    const { stdout } = await exec('python3', ['-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--js-runtimes', 'node', '--no-cache-dir', '--proxy', proxy.url, '--skip-download', '--dump-single-json', '--no-playlist', '--no-warnings', '--socket-timeout', '15', '--retries', '0', '--', normalizeURL(url)], { timeout: 55000, maxBuffer: 5_000_000, env: toolEnvironment });
+    const { stdout } = await exec('python3', ['-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--js-runtimes', 'node', '--no-cache-dir', '--proxy', proxy.url, '--skip-download', '--ignore-no-formats-error', '--dump-single-json', '--no-playlist', '--no-warnings', '--socket-timeout', '15', '--retries', '0', '--', normalizeURL(url)], { timeout: 55000, maxBuffer: 5_000_000, env: toolEnvironment });
     const meta = JSON.parse(stdout);
-    const result = { text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration,
+    const result = { title: meta.title ?? null, creator: meta.uploader ?? null, description: meta.description ?? '', text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration,
       extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
     const tracks = { ...meta.automatic_captions, ...meta.subtitles };
-    const language = Object.keys(tracks).find(k => k === meta.language) ?? Object.keys(tracks).find(k => k.startsWith('en')) ?? Object.keys(tracks)[0];
-    const track = tracks[language]?.find(t => t.ext === 'vtt') ?? tracks[language]?.find(t => t.ext === 'json3');
-    if (track) { try { const caption = await safeFetch(track.url, 1_000_000); if(caption.bytes.length) { result.text += '\nTimestamped captions:\n' + caption.bytes.toString().slice(0,80000); result.hasTranscript = true; } } catch { /* Continue with description/media. */ } }
+    await onMetadata(result);
+    const languages = Object.keys(tracks).sort((a,b) => (b === meta.language ? 2 : b.startsWith('en') ? 1 : 0) - (a === meta.language ? 2 : a.startsWith('en') ? 1 : 0));
+    if (captions || withMedia) await readCaptions(languages.flatMap(language => (tracks[language] ?? []).filter(t => ['vtt','json3'].includes(t.ext))), result);
     // Captions are deterministic evidence; only download/transcribe when they are unavailable.
     if (withMedia && !result.hasTranscript && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
       try {
@@ -122,7 +183,7 @@ export async function readSocial(url, withMedia = false) {
             }
           }
         } else { result.retrievalErrors.push('This platform did not expose a downloadable media file.'); }
-      } catch { result.retrievalErrors.push('Media could not be downloaded; using the available source text.'); }
+      } catch(error) { result.retrievalErrors.push(retrievalError(error)); }
     }
     return result;
   } finally { proxy.close(); await rm(directory, { recursive: true, force: true }); }

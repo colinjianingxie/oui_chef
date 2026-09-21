@@ -97,7 +97,25 @@ struct RecipeImport: Codable, Identifiable, Equatable {
     var recipeID: String?
     var createdAt: Double
     var source: String
+    var stage: Int?
+    var attempt: Int?
+    var previewTitle: String?
+    var previewCreator: String?
+    var previewSummary: String?
+    var previewIngredients: [String]?
+    var previewSteps: [String]?
     var running: Bool { ["queued", "fetching", "transcribing", "extracting", "checking"].contains(status) }
+    static let stages = ["Read the source", "Read the written recipe", "Check the recipe", "Complete ingredients & steps", "Save to your cookbook"]
+    var progressStage: Int {
+        if let stage { return max(0, min(stage, Self.stages.count)) }
+        switch status {
+        case "transcribing": return 1
+        case "extracting": return 3
+        case "checking": return 2
+        case "ready": return 5
+        default: return 0
+        }
+    }
 }
 
 struct AttemptEvent: Codable, Identifiable, Equatable {

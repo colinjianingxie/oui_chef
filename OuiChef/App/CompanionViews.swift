@@ -126,6 +126,15 @@ struct CompanionPreferences: View {
                         Stepper("Usually cooking for \(draft.servings)", value: $draft.servings, in: 1...20)
                         Stepper("Household size: \(draft.householdSize)", value: $draft.householdSize, in: 1...20)
                         choice("Measurements", value: $draft.units, options: ["Metric", "US customary"])
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Chef’s spoken language").font(.subheadline.weight(.medium))
+                            TextField("For example, English or Mandarin", text: $draft.voiceLanguage)
+                                .textInputAutocapitalization(.words).padding(14)
+                                .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                                .accessibilityIdentifier("voice-language")
+                                .onChange(of: draft.voiceLanguage) { _, value in draft.voiceLanguage = String(value.prefix(80)) }
+                            Text("Your chef will speak this language, whatever language the original recipe uses.").font(.caption).foregroundStyle(.secondary)
+                        }
                         Toggle("Keep screen awake while cooking", isOn: $draft.keepAwake)
                         Toggle("Gentle cooking reminders", isOn: $draft.gentleGuidance)
                         DisclosureGroup("Equipment · optional") {
@@ -144,6 +153,8 @@ struct CompanionPreferences: View {
         .sheet(item: $picker) { section in PreferenceChecklist(section: section, profile: $draft) }
     }
     private func finish() {
+        draft.voiceLanguage = draft.voiceLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if draft.voiceLanguage.isEmpty { draft.voiceLanguage = "English" }
         draft.onboardingComplete = true
         draft.previousPreferencesPendingReview = [:]
         store.setProfile(draft); dismiss()
@@ -175,6 +186,12 @@ struct CompanionHome: View {
     @State private var settings = false
     @State private var account = false
     @State private var selectedAttempt: CookAttempt?
+    private var pendingImports: [RecipeImport] {
+        store.imports.filter { item in
+            item.status != "canceled" && !store.recipes.contains(where: { $0.id == (item.recipeID ?? item.id) }) && !favorites &&
+            (query.isEmpty || ((item.previewTitle ?? "") + " " + item.source).localizedCaseInsensitiveContains(query))
+        }
+    }
     private var filtered: [CompanionRecipe] { store.recipes.filter { (!favorites || $0.favorite) && (query.isEmpty || ($0.title + " " + $0.ingredients.map(\.name).joined(separator: " ")).localizedCaseInsensitiveContains(query)) } }
     var body: some View {
         NavigationStack {
@@ -188,7 +205,6 @@ struct CompanionHome: View {
                         if tab == "Home" && query.isEmpty {
                             importCard
                             if !store.inProgress.isEmpty { inProgress }
-                            if !store.imports.filter({ $0.running }).isEmpty { importActivity }
                             if !store.history.isEmpty { recentDishes }
                         }
                         HStack {
@@ -196,11 +212,16 @@ struct CompanionHome: View {
                             Spacer()
                             Button { favorites.toggle() } label: { Image(systemName: favorites ? "heart.fill" : "heart").frame(width: 44, height: 44) }.accessibilityLabel(favorites ? "Show all recipes" : "Show favorites")
                         }
-                        if filtered.isEmpty {
+                        if filtered.isEmpty && pendingImports.isEmpty {
                             if query.isEmpty && !favorites { emptyCookbook }
                             else { ContentUnavailableView.search(text: query.isEmpty ? "Favorites" : query) }
                         } else {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 24) {
+                                ForEach(pendingImports) { item in
+                                    Button { store.focusedImportID = item.id; store.showImport = true } label: {
+                                        ImportRecipePreview(item: item, compact: true)
+                                    }.buttonStyle(.plain).accessibilityIdentifier("import-tile-\(item.id)")
+                                }
                                 ForEach(filtered) { recipe in
                                     Button { store.selectedRecipe = recipe } label: { RecipeTile(recipe: recipe) }.buttonStyle(.plain).accessibilityIdentifier("recipe-\(recipe.id)")
                                 }
@@ -237,7 +258,7 @@ struct CompanionHome: View {
             .font(.subheadline).foregroundStyle(.secondary).padding(14).background(Theme.green.opacity(0.065), in: RoundedRectangle(cornerRadius: 14))
     }
     private var importCard: some View {
-        Button { store.showImport = true } label: {
+        Button { store.focusedImportID = nil; store.showImport = true } label: {
             HStack(spacing: 16) {
                 Image(systemName: "plus").font(.title3).foregroundStyle(.white).frame(width: 42, height: 42).background(Theme.green, in: Circle())
                 VStack(alignment: .leading, spacing: 6) { Text("Found something delicious?").font(.body.weight(.medium)); Text("Bring a recipe from anywhere.").font(.caption).foregroundStyle(.secondary) }
@@ -250,7 +271,7 @@ struct CompanionHome: View {
             Image("WelcomeFood").resizable().scaledToFill().frame(height: 190).clipped().clipShape(RoundedRectangle(cornerRadius: 20)).accessibilityHidden(true)
             Text("Your next favorite\nstarts with a link.").font(Theme.serif(28))
             Text("Save that pasta you saw, the bread you’ve been meaning to try, or a family favorite from the web.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
-            Button("Import your first recipe") { store.showImport = true }.buttonStyle(FilledButton())
+            Button("Import your first recipe") { store.focusedImportID = nil; store.showImport = true }.buttonStyle(FilledButton())
         }
     }
     private var inProgress: some View {
@@ -266,9 +287,6 @@ struct CompanionHome: View {
                 }.buttonStyle(.plain)
             }
         }
-    }
-    private var importActivity: some View {
-        Button { store.showImport = true } label: { HStack { ProgressView(); Text("Your recipe is coming together…").font(.subheadline); Spacer(); Image(systemName: "chevron.right") }.padding(16).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 16)) }.buttonStyle(.plain)
     }
     private var recentDishes: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -292,7 +310,7 @@ struct CompanionHome: View {
             HStack(spacing: 15) { Image(systemName: "person.crop.circle").font(.system(size: 42, weight: .light)); VStack(alignment: .leading, spacing: 6) { Text(AccountSession.shared.name).font(.headline); Text("Your private cookbook & album").font(.caption).foregroundStyle(.secondary) } }
             HStack { stat("\(store.recipes.count)", "recipes"); Spacer(); stat("\(store.history.count)", "dishes made"); Spacer(); stat("\(store.recipes.filter(\.favorite).count)", "favorites") }.padding(22).background(Theme.sage, in: RoundedRectangle(cornerRadius: 20))
             Button { settings = true } label: { Label("Cooking preferences", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
-            Button { store.showImport = true } label: { Label("Import history", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
+            Button { store.focusedImportID = nil; store.showImport = true } label: { Label("Import history", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
             Button { account = true } label: { Label("Privacy & account", systemImage: "person.crop.circle").frame(maxWidth: .infinity, minHeight: 48, alignment: .leading) }
             Text("A little more confidence.\nA little less looking at your phone.").font(Theme.serif(25)).foregroundStyle(Theme.green).padding(.top, 30)
         }
@@ -301,7 +319,7 @@ struct CompanionHome: View {
     private var tabBar: some View {
         HStack(spacing: 0) {
             tabButton("Home", "house"); tabButton("Cookbook", "book.closed")
-            Button { store.showImport = true } label: { Image(systemName: "plus").font(.system(size: 22)).foregroundStyle(.white).frame(width: 48, height: 48).background(Theme.ink, in: Circle()).frame(maxWidth: .infinity) }.accessibilityLabel("Import recipe")
+            Button { store.focusedImportID = nil; store.showImport = true } label: { Image(systemName: "plus").font(.system(size: 22)).foregroundStyle(.white).frame(width: 48, height: 48).background(Theme.ink, in: Circle()).frame(maxWidth: .infinity) }.accessibilityLabel("Import recipe")
             tabButton("Album", "photo.on.rectangle"); tabButton("Profile", "person")
         }.padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 8).background(Theme.cream).overlay(alignment: .top) { Theme.green.opacity(0.1).frame(height: 1) }
     }
@@ -340,66 +358,116 @@ private struct RecipeTile: View {
     }
 }
 
+private struct ImportRecipePreview: View {
+    let item: RecipeImport
+    var compact = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if compact {
+                RoundedRectangle(cornerRadius: 17).fill(Theme.sage.opacity(0.6)).frame(height: 155)
+                    .overlay { if item.running { ProgressView() } else { Image(systemName: "info.circle").foregroundStyle(Theme.green) } }
+                    .accessibilityHidden(true)
+            }
+            Text(item.previewTitle ?? "Your recipe").font(Theme.serif(compact ? 20 : 25)).lineLimit(compact ? 2 : nil)
+                .redacted(reason: item.previewTitle == nil && item.running ? .placeholder : [])
+            if let creator = item.previewCreator { Text(creator).font(.caption).foregroundStyle(.secondary) }
+            if compact {
+                Text(item.message).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            } else {
+                if let summary = item.previewSummary { Text(summary).font(.subheadline).foregroundStyle(.secondary) }
+                previewSection("Ingredients", lines: item.previewIngredients)
+                previewSection("Cooking steps", lines: item.previewSteps)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading)
+    }
+    private func previewSection(_ title: String, lines: [String]?) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.headline)
+            if let lines {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in Text(line).font(.subheadline) }
+            } else if item.running {
+                Text("Recipe details are on their way\nA little more to come\nPutting everything together").font(.subheadline).lineSpacing(10)
+                    .redacted(reason: .placeholder).accessibilityLabel("\(title) are loading")
+            } else { Text("Not available yet").font(.subheadline).foregroundStyle(.secondary) }
+        }.padding(.vertical, 8)
+    }
+}
+
 struct CompanionImportView: View {
     @Bindable var store: CompanionStore
     @State private var url = ""
     @State private var recipeText = ""
     @State private var textMode = false
+    private var focusedImport: RecipeImport? { store.imports.first { $0.id == store.focusedImportID } }
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
-                    Text("Turn any recipe\ninto your recipe.").font(Theme.serif(37))
-                    Text("Bring the ingredients and instructions. Your chef will turn them into a recipe you can cook.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text(textMode ? "Paste the text" : "Paste a link").font(.headline)
-                        if textMode {
-                            TextEditor(text: $recipeText).frame(height: 160).padding(10).scrollContentBackground(.hidden)
-                                .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
-                                .accessibilityLabel("Recipe text").accessibilityIdentifier("recipe-text")
-                            Text("Include ingredients and steps. A link isn’t required.").font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            HStack(spacing: 12) {
-                                Image(systemName: "link")
-                                TextField("Paste a link here…", text: $url).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("recipe-url")
-                                PasteButton(payloadType: String.self) { values in if let first = values.first { url = first } }.labelStyle(.iconOnly)
-                            }.padding(15).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                    if let item = focusedImport {
+                        Text(item.status == "ready" ? "Your recipe is ready." : item.running ? "Your recipe is\ncoming together." : "Let’s try that again.").font(Theme.serif(37))
+                        importRow(item)
+                        ImportRecipePreview(item: item)
+                        if !item.running {
+                            Button("Import another recipe") { store.focusedImportID = nil; url = ""; recipeText = "" }.font(.subheadline)
                         }
-                        Button {
-                            dismissCookingKeyboard()
-                            Task { await store.importRecipe(textMode ? "" : url, text: textMode ? recipeText : "") }
-                        } label: {
-                            HStack(spacing: 12) {
-                                if store.importing { ProgressView().tint(.white) }
-                                Text(store.importing ? "Adding your recipe…" : "Make it a recipe")
-                                Image(systemName: "arrow.right")
-                            }.padding(.horizontal, 20).frame(minHeight: 24)
-                        }.buttonStyle(FilledButton()).accessibilityIdentifier("make-recipe")
-                            .disabled((textMode ? recipeText : url).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.importing)
-                    }
-                    HStack { Rectangle().frame(height: 1); Text("or").font(.caption); Rectangle().frame(height: 1) }.foregroundStyle(Theme.green.opacity(0.3))
-                    VStack(spacing: 12) {
-                        HStack(spacing: 14) {
-                            Image(systemName: "photo").frame(width: 24)
-                            Text("Upload a photo")
-                            Spacer()
-                            Text("Coming soon").font(.caption).foregroundStyle(.secondary)
-                        }.padding(18).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
-                            .accessibilityElement(children: .combine)
-                        Button { dismissCookingKeyboard(); textMode.toggle() } label: {
+                    } else {
+                        Text("Turn any recipe\ninto your recipe.").font(Theme.serif(37))
+                        Text("Bring the ingredients and instructions. Your chef will turn them into a recipe you can cook.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text(textMode ? "Paste the text" : "Paste a link").font(.headline)
+                            if textMode {
+                                TextEditor(text: $recipeText).frame(height: 160).padding(10).scrollContentBackground(.hidden)
+                                    .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                                    .accessibilityLabel("Recipe text").accessibilityIdentifier("recipe-text")
+                                Text("Include ingredients and steps. A link isn’t required.").font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "link")
+                                    TextField("Paste a link here…", text: $url).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("recipe-url")
+                                    PasteButton(payloadType: String.self) { values in if let first = values.first { url = first } }.labelStyle(.iconOnly)
+                                }.padding(15).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                            }
+                            Button {
+                                dismissCookingKeyboard()
+                                Task { await store.importRecipe(textMode ? "" : url, text: textMode ? recipeText : "") }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    if store.importing { ProgressView().tint(.white) }
+                                    Text(store.importing ? "Adding your recipe…" : "Make it a recipe")
+                                    Image(systemName: "arrow.right")
+                                }.padding(.horizontal, 20).frame(minHeight: 24)
+                            }.buttonStyle(FilledButton()).accessibilityIdentifier("make-recipe")
+                                .disabled((textMode ? recipeText : url).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.importing)
+                        }
+                        HStack { Rectangle().frame(height: 1); Text("or").font(.caption); Rectangle().frame(height: 1) }.foregroundStyle(Theme.green.opacity(0.3))
+                        VStack(spacing: 12) {
                             HStack(spacing: 14) {
-                                Image(systemName: textMode ? "link" : "doc.text").frame(width: 24)
-                                Text(textMode ? "Paste a link" : "Paste the text")
-                                Spacer(); Image(systemName: "chevron.right").font(.caption)
-                            }.padding(18).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
-                        }.buttonStyle(.plain).accessibilityIdentifier("toggle-import-mode").disabled(store.importing)
+                                Image(systemName: "photo").frame(width: 24)
+                                Text("Upload a photo")
+                                Spacer()
+                                Text("Coming soon").font(.caption).foregroundStyle(.secondary)
+                            }.padding(18).background(.white.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
+                                .accessibilityElement(children: .combine)
+                            Button { dismissCookingKeyboard(); textMode.toggle() } label: {
+                                HStack(spacing: 14) {
+                                    Image(systemName: textMode ? "link" : "doc.text").frame(width: 24)
+                                    Text(textMode ? "Paste a link" : "Paste the text")
+                                    Spacer(); Image(systemName: "chevron.right").font(.caption)
+                                }.padding(18).background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
+                            }.buttonStyle(.plain).accessibilityIdentifier("toggle-import-mode").disabled(store.importing)
+                        }
+                        Label("Or tap Share in another app, then choose Oui Chef. Look under More if you don’t see it.", systemImage: "square.and.arrow.up").font(.caption).foregroundStyle(.secondary).lineSpacing(4)
                     }
-                    Label("Or tap Share in another app, then choose Oui Chef. Look under More if you don’t see it.", systemImage: "square.and.arrow.up").font(.caption).foregroundStyle(.secondary).lineSpacing(4)
-                    if !store.imports.isEmpty {
+                    if focusedImport == nil && !store.imports.isEmpty {
                         Divider().padding(.vertical, 8)
                         Text("In your kitchen").font(Theme.serif(25))
-                        ForEach(store.imports) { item in importRow(item) }
+                        ForEach(store.imports) { item in
+                            Button { store.focusedImportID = item.id } label: {
+                                HStack { Text(item.previewTitle ?? item.source); Spacer(); Text(item.status.capitalized).font(.caption); Image(systemName: "chevron.right") }
+                                    .padding(16).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 16))
+                            }.buttonStyle(.plain)
+                        }
                     }
                 }.padding(25)
             }.background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
@@ -411,8 +479,14 @@ struct CompanionImportView: View {
             HStack { Text(item.source).font(.headline); Spacer(); if item.running { ProgressView() } else { Image(systemName: item.status == "ready" ? "checkmark.circle.fill" : "info.circle").foregroundStyle(Theme.green) } }
             Text(item.url).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             if item.running {
-                ForEach(Array([("fetching","Reading the source"),("extracting","Finding ingredients & steps"),("checking","Putting it together")].enumerated()), id: \.offset) { index, value in
-                    HStack(spacing: 12) { Circle().fill(progress(item.status) >= index ? Theme.green : Theme.green.opacity(0.15)).frame(width: 8, height: 8); Text(value.1).font(.subheadline).foregroundStyle(progress(item.status) >= index ? Theme.ink : .secondary) }
+                ForEach(Array(RecipeImport.stages.enumerated()), id: \.offset) { index, label in
+                    HStack(spacing: 12) {
+                        if index < item.progressStage { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green) }
+                        else if index == item.progressStage { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "circle").foregroundStyle(Theme.green.opacity(0.25)) }
+                        Text(label).font(.subheadline).foregroundStyle(index <= item.progressStage ? Theme.ink : .secondary)
+                    }.accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(label): \(index < item.progressStage ? "Complete" : index == item.progressStage ? "In progress" : "Waiting")")
                 }
             }
             Text(item.message).font(.subheadline).foregroundStyle(.secondary)
@@ -421,11 +495,10 @@ struct CompanionImportView: View {
             } else if item.running {
                 HStack { Text("You can leave. We’ll keep working.").font(.caption); Spacer(); Button("Cancel") { Task { await store.cancelImport(item.id) } }.font(.caption) }
             } else if ["failed","skipped","canceled"].contains(item.status) {
-                Button("Try again or paste recipe text") { url = item.url; textMode = item.url.isEmpty }.font(.subheadline)
+                Button("Try again or paste recipe text") { url = item.url; textMode = item.url.isEmpty; store.focusedImportID = nil }.font(.subheadline)
             }
         }.padding(19).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
     }
-    private func progress(_ status: String) -> Int { status == "checking" ? 2 : ["extracting","transcribing"].contains(status) ? 1 : 0 }
 }
 
 struct CompanionRecipeView: View {
