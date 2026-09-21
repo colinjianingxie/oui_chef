@@ -132,15 +132,15 @@ export function captionTracks(meta) {
       for (const track of formats) if (['vtt', 'json3'].includes(track.ext)) tracks.push({ ...track, language, kind });
     }
   }
-  for (const track of meta.captionTracks ?? []) {
+  for (const [index, track] of (meta.captionTracks ?? []).entries()) {
     for (const ext of ['json3', 'vtt']) {
       const url = new URL(track.baseUrl); url.searchParams.set('fmt', ext);
-      tracks.push({ url: url.href, ext, language: track.languageCode, kind: track.kind === 'asr' ? 'automatic' : 'manual' });
+      tracks.push({ url: url.href, ext, language: track.languageCode, kind: track.kind === 'asr' ? 'automatic' : 'manual', original: index === 0 });
     }
   }
   const rank = track => {
     const url = new URL(track.url);
-    const original = track.language?.endsWith('-orig') || track.language === meta.language;
+    const original = track.original || track.language?.endsWith('-orig') || track.language === meta.language;
     return (url.searchParams.has('tlang') ? 10 : 0) + (original ? 0 : track.kind === 'manual' ? 1 : 2);
   };
   const sorted = tracks.sort((a,b) => rank(a) - rank(b) || Number(a.ext !== 'json3') - Number(b.ext !== 'json3'));
@@ -152,19 +152,38 @@ export function captionTracks(meta) {
   }
   return [...first, ...alternates].slice(0, 4);
 }
+export function sampleSeconds(duration) {
+  const count = Math.min(24, Math.max(4, Math.ceil(duration / 12)));
+  return Array.from({ length: count }, (_, index) => Math.round(duration * (index + 0.5) / count));
+}
+export function mediaFormat(formats, hasTranscript) {
+  const available = (formats ?? []).filter(format => format.url?.startsWith('https:') && format.protocol === 'https');
+  const videos = available.filter(format => format.vcodec !== 'none' && (!format.height || format.height <= 480)).sort((a,b) => Number(b.ext === 'mp4') - Number(a.ext === 'mp4') || (b.height ?? 0) - (a.height ?? 0));
+  const combined = videos.find(format => format.acodec !== 'none');
+  const audio = available.find(format => format.vcodec === 'none' && format.acodec !== 'none');
+  return hasTranscript ? videos[0] ?? audio : combined ?? audio;
+}
 export async function readCaptions(tracks, result, fetchSource = safeFetch) {
+  let found = false;
   for (const track of tracks) {
     try {
       const caption = await fetchSource(track.url, 1_000_000);
       const transcript = captionText(caption.bytes.toString(), true);
       if (transcript) {
-        result.transcript = transcript.slice(0,80000);
-        result.transcriptLanguage = track.language ?? null;
-        result.hasTranscript = true; return;
+        const language = track.language ?? null;
+        if (!found) {
+          result.transcript = transcript.slice(0,80000); result.transcriptLanguage = language;
+          result.hasTranscript = true; found = true;
+          if (/^en(?:-|$)/i.test(language ?? '')) return;
+        } else if (/^en(?:-|$)/i.test(language ?? '')) {
+          result.transcriptTranslation = transcript.slice(0,80000);
+          result.transcriptTranslationLanguage = language;
+          return;
+        }
       }
     } catch { /* Try the next available caption track. */ }
   }
-  result.retrievalErrors.push(tracks.length ? 'Caption tracks were listed, but returned no readable captions.' : 'No caption tracks were exposed by the source.');
+  if (!found) result.retrievalErrors.push(tracks.length ? 'Caption tracks were listed, but returned no readable captions.' : 'No caption tracks were exposed by the source.');
 }
 export async function readPage(url, { captions = false, onMetadata = async () => {} } = {}) {
   const page = await safeFetch(url);
@@ -200,24 +219,26 @@ export async function readSocial(url, { withMedia = false, captions = false, onM
           result.retrievalErrors.push(...page.retrievalErrors);
           if (page.hasTranscript) {
             result.transcript = page.transcript; result.transcriptLanguage = page.transcriptLanguage;
+            result.transcriptTranslation = page.transcriptTranslation; result.transcriptTranslationLanguage = page.transcriptTranslationLanguage;
             result.hasTranscript = true;
           }
         } catch { result.retrievalErrors.push('The public video captions could not be read.'); }
       }
     }
-    // Captions are deterministic evidence; only download/transcribe when they are unavailable.
-    if (withMedia && !result.hasTranscript && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
+    // Media is only requested after written extraction is insufficient. Sample frames even when captions exist.
+    if (withMedia && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
       try {
-        const formats = (meta.formats ?? []).filter(f => f.url?.startsWith('https:') && f.protocol === 'https' && f.acodec !== 'none');
-        const format = formats.find(f => f.vcodec !== 'none' && f.height <= 480 && f.ext === 'mp4') ?? formats.find(f => f.vcodec === 'none');
+        const format = mediaFormat(meta.formats, result.hasTranscript);
         if (format) {
           const media = await safeFetch(format.url, 40_000_000); const file = join(directory, 'media'); await writeFile(file, media.bytes);
-          const audio = join(directory, 'audio.mp3');
-          await exec('ffmpeg', ['-v','error','-protocol_whitelist','file,pipe','-i',file,'-vn','-ac','1','-ar','16000','-t','1200',audio], { timeout: 45000, env: toolEnvironment });
-          result.audio = await readFile(audio);
+          if (!result.hasTranscript) {
+            const audio = join(directory, 'audio.mp3');
+            await exec('ffmpeg', ['-v','error','-protocol_whitelist','file,pipe','-i',file,'-vn','-ac','1','-ar','16000','-t','1200',audio], { timeout: 45000, env: toolEnvironment });
+            result.audio = await readFile(audio);
+          }
           if (format.vcodec !== 'none') {
-            for (const fraction of [0.15,0.4,0.65,0.85]) {
-              const second = Math.floor(meta.duration * fraction), frame = join(directory, `frame-${second}.jpg`);
+            for (const second of sampleSeconds(meta.duration)) {
+              const frame = join(directory, `frame-${second}.jpg`);
               await exec('ffmpeg', ['-v','error','-ss',String(second),'-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=640:-1',frame], { timeout: 15000, env: toolEnvironment });
               result.images.push({ second, data: (await readFile(frame)).toString('base64') });
             }

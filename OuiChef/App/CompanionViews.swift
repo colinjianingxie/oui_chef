@@ -490,6 +490,21 @@ struct CompanionImportView: View {
                 }
             }
             Text(item.message).font(.subheadline).foregroundStyle(.secondary)
+            if item.hasImportEvidence {
+                Divider()
+                Text("Import evidence").font(.headline)
+                evidenceValue("Source title", item.sourceTitle)
+                evidenceValue("Recipe title", item.recipeTitle)
+                evidenceValue("Creator", item.previewCreator)
+                evidenceValue("Source reader", item.sourceExtractor)
+                if let duration = item.sourceDurationSeconds { evidenceValue("Video duration", "\(Int(duration.rounded())) seconds") }
+                if let point = item.failurePoint { evidenceValue("Last incomplete stage", point) }
+                if let reason = item.extractionReason { evidenceValue("Parser result", reason) }
+                if let seconds = item.frameSeconds, !seconds.isEmpty { evidenceValue("Frames sampled", seconds.map { "\(Int($0.rounded()))s" }.joined(separator: ", ")) }
+                evidenceDisclosure("Ingredients captured", text: item.previewIngredients?.joined(separator: "\n"), identifier: "import-ingredients")
+                evidenceDisclosure("Original transcript\(item.transcriptLanguage.map { " · \($0)" } ?? "")", text: item.originalTranscript, identifier: "original-transcript")
+                evidenceDisclosure("English translation", text: item.translatedTranscript, identifier: "translated-transcript")
+            }
             if item.status == "ready", let recipe = store.recipes.first(where: { $0.id == item.recipeID }) {
                 Button("Review \(recipe.title) →") { dismiss(); Task { try? await Task.sleep(for: .milliseconds(400)); store.selectedRecipe = recipe } }.font(.subheadline.weight(.medium))
             } else if item.running {
@@ -498,6 +513,20 @@ struct CompanionImportView: View {
                 Button("Try again or paste recipe text") { url = item.url; textMode = item.url.isEmpty; store.focusedImportID = nil }.font(.subheadline)
             }
         }.padding(19).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
+    }
+    @ViewBuilder private func evidenceValue(_ label: String, _ value: String?) -> some View {
+        if let value, !value.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(value).font(.subheadline).textSelection(.enabled)
+            }
+        }
+    }
+    @ViewBuilder private func evidenceDisclosure(_ label: String, text: String?, identifier: String) -> some View {
+        if let text, !text.isEmpty {
+            DisclosureGroup(label) { Text(text).font(.caption).padding(.top, 8).textSelection(.enabled) }
+                .font(.subheadline.weight(.medium)).accessibilityIdentifier(identifier)
+        }
     }
 }
 

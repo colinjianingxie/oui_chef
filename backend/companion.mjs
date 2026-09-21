@@ -2,11 +2,18 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { importInput, readPage, readSocial, safeFetch, retrievalError, descriptionLinks } from './import-source.mjs';
-import { classifySource, extractRecipe, transcribe, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
+import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
 const send=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
+const extractionPreview=(recipe,failurePoint) => ({
+  recipeTitle:recipe.title?.trim()?.slice(0,500)||null,
+  previewIngredients:(recipe.ingredients??[]).map(item=>`${item.quantity} ${item.name}`).slice(0,150),
+  previewSteps:(recipe.steps??[]).map(step=>step.title||step.instruction).slice(0,150),
+  extractionReason:recipe.outcome==='recipe'?null:recipe.reason?.slice(0,1000)||null,
+  failurePoint:recipe.outcome==='recipe'?null:failurePoint
+});
 async function readBody(req) {let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>3_200_000)throw new Error('Request too large.');chunks.push(chunk);}return Buffer.concat(chunks).toString();}
 async function enqueue(uid,id,attempt) {
   const body=JSON.stringify({uid,id,attempt});
@@ -40,7 +47,10 @@ export async function runImport(db,uid,id,attempt) {
     let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
     const metadata = async source => progress('fetching','Found the source. Reading its written recipe…',0,{
       previewTitle: typeof source.title === 'string' ? source.title.slice(0,500) : null,
-      previewCreator: typeof source.creator === 'string' ? source.creator.slice(0,200) : null
+      sourceTitle: typeof source.title === 'string' ? source.title.slice(0,500) : null,
+      previewCreator: typeof source.creator === 'string' ? source.creator.slice(0,200) : null,
+      sourceDurationSeconds: Number.isFinite(source.duration) ? source.duration : null,
+      sourceExtractor: typeof source.extractor === 'string' ? source.extractor.slice(0,100) : null
     });
     if(claimed.url) {
       if(claimed.source==='Website') {
@@ -73,12 +83,16 @@ export async function runImport(db,uid,id,attempt) {
     if(scope.scope==='food') {
       await progress('extracting','Organizing the written ingredients and cooking steps…',3);
       result=await extractRecipe(db,uid,id,evidence,profile);
+      await ref.update(extractionPreview(result.recipe,'Written source'));
       if(result.recipe.outcome==='insufficient' && claimed.url) {
         await progress('extracting','Looking for the creator’s original written recipe…',3,{extractionReason:result.recipe.reason});
         try {
           evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result.recipe.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);
         } catch {retrievalErrors.push('The original written recipe search was unavailable.');}
-        if(evidence.writtenResearch) result=await extractRecipe(db,uid,id,evidence,profile);
+        if(evidence.writtenResearch) {
+          result=await extractRecipe(db,uid,id,evidence,profile);
+          await ref.update(extractionPreview(result.recipe,'Written source and recipe research'));
+        }
       }
     }
     if(claimed.url && claimed.source!=='Website' && (scope.scope==='unknown' || result?.recipe.outcome==='insufficient')) {
@@ -95,20 +109,39 @@ export async function runImport(db,uid,id,attempt) {
         retrievalErrors.push(...media.retrievalErrors);
         evidence.transcript=media.transcript??'';
         evidence.transcriptLanguage=media.transcriptLanguage??null;
+        evidence.transcriptTranslation=media.transcriptTranslation??'';
         evidence.images=media.images??[];
         if(media.audio) {
-          try {evidence.transcript+='\nAudio transcript:\n'+await transcribe(db,uid,id,media.audio);}
+          try {
+            const speech=await transcribe(db,uid,id,media.audio);
+            evidence.transcript+='\n'+speech.text; evidence.transcriptLanguage??=speech.language;
+          }
           catch {retrievalErrors.push('Audio transcription was unavailable.');}
+        }
+        if(evidence.transcript && !evidence.transcriptTranslation && !/^en(?:-|$)/i.test(evidence.transcriptLanguage??'')) {
+          try {evidence.transcriptTranslation=await translateTranscript(db,uid,id,evidence.transcript,evidence.transcriptLanguage);}
+          catch {retrievalErrors.push('Transcript translation was unavailable.');}
         }
         retrieval.hasTranscript=!!evidence.transcript;
         retrieval.transcriptLanguage=evidence.transcriptLanguage;
+        await progress('transcribing','Reading captions, translation, and video frames…',3,{
+          originalTranscript:evidence.transcript.slice(0,80000)||null,
+          transcriptLanguage:evidence.transcriptLanguage,
+          translatedTranscript:evidence.transcriptTranslation.slice(0,80000)||null,
+          frameSeconds:evidence.images.map(frame=>frame.second),retrieval,retrievalErrors
+        });
         if(evidence.transcript || evidence.images.length) {
           scope=await classifySource(db,uid,id,evidence);
           await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
           if(scope.scope==='food') {
             await progress('extracting','Completing the recipe while preserving its written instructions…',3);
             result=await extractRecipe(db,uid,id,evidence,profile);
+            await ref.update(extractionPreview(result.recipe,evidence.images.length?'Captions, translation, and sampled video frames':'Captions or audio transcript'));
+          } else if(scope.scope==='unknown') {
+            await ref.update({failurePoint:'Recipe classification after media recovery',extractionReason:scope.reason?.slice(0,1000)||null});
           }
+        } else {
+          await ref.update({failurePoint:'Caption, audio, and frame recovery',extractionReason:retrievalErrors.at(-1)?.slice(0,1000)||'No readable media evidence was recovered.'});
         }
       }
     }
@@ -141,7 +174,7 @@ export async function runImport(db,uid,id,attempt) {
       return true;
     });
     if(!saved&&imagePath)await getStorage().bucket().file(imagePath).delete({ignoreNotFound:true});
-  }catch(error){const latest=await ref.get();if(latest.exists&&latest.data()?.status!=='canceled'&&latest.data()?.attempt===attempt)await ref.update({status:'failed',message:error.message==='Import canceled.'?error.message:'This import could not finish. Retry, or add the recipe text.',finishedAt:Date.now()});}
+  }catch(error){const latest=await ref.get();if(latest.exists&&latest.data()?.status!=='canceled'&&latest.data()?.attempt===attempt)await ref.update({status:'failed',message:error.message==='Import canceled.'?error.message:'This import could not finish. Retry, or add the recipe text.',failurePoint:latest.data()?.message??latest.data()?.status??'Import',extractionReason:error.message?.slice(0,1000)??'Import failed.',finishedAt:Date.now()});}
 }
 export async function handleCompanion(req,res,{db,auth}) {
   try {
