@@ -156,3 +156,8 @@ Description links use the existing public URL, DNS pinning, redirect and respons
 The extraction instructions explicitly require washes/garnishes in the ingredient list, consistent step allocations, preserved ingredient-addition order, and separate rest/proof/bake steps with timers attached only to their own step. These are model instructions, not new deterministic semantic validators; they do not establish that the earlier Matcha output is corrected. Its retrieved description contains ingredient amounts and baking temperature/time but no full method; the links are labeled for subscribing and music. Another supported source or readable media is still needed for the method.
 
 Verification: 26 backend tests passed, with three emulator-only tests skipped; 30 Swift core tests passed. Mocked worker checks cover written-only completion, HTML fallback, written research before media, unavailable links/research, empty captions, and unknown/non-food scope. No additional paid AI run, deployment or TestFlight upload was performed for this follow-up.
+
+
+### Backend deployment — September 20
+
+Committed source `260ef8e` is deployed as `oui-chef-voice-imports-260ef8e`, serving 100% of the existing Cloud Run service traffic. Cloud Build `b13f01c8-6ed7-4311-be2b-c75eb42ce07b` produced image digest `sha256:4cfde4fc716235289528583c74f8ac978e9505b46308211a1cc2e2c131883ae6`. Existing service configuration, secrets, account data, and quotas were preserved. Health returned 200, unauthenticated imports 401, and unsigned worker calls 403. Deployment validation made no paid AI calls; semantic quality of a fresh Matcha import remains unverified.

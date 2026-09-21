@@ -1,5 +1,19 @@
 # TestFlight
 
+## September 20, 2026 — written recipe imports, build 8
+
+Oui Chef AI **1.0 (8)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully on September 21 at **03:02:31 UTC** (September 20 local time). Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's final upload receipt was **PROCESSING**, with no record-level errors or warnings; tester availability has not been verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `260ef8e`, pushed to GitHub. Upload ID: `56b61ab7-fa5b-454a-90ad-22694595103f`. The signed Release app was also installed and successfully launched on **Colin’s iPhone (2)**, an iPhone 14 running iOS 26.6.1. Xcode assigned upload build 8; the source/archive/device build setting remains 1.0 (2).
+
+This release adds written-source-first recipe imports, improved YouTube description retrieval, visible parsing stages, pending cookbook cards with progressive details, and a saved chef spoken-language preference. It also includes the preference checklists and import-form refinements committed since build 7. The matching backend is deployed as **`oui-chef-voice-imports-260ef8e`**, serving 100% of the existing Cloud Run service traffic. Health and authentication guards passed; account data and quotas were preserved.
+
+Verification: 30 Swift core tests, 26 backend tests, the updated simulator import-progress/cookbook acceptance test, signed Release archiving, signature verification, physical-device installation and launch, and App Store Connect upload passed. Three emulator-only tests were skipped. This release validation made no paid AI calls. A fresh live Matcha recipe has not been validated after the written-source priority and extraction-prompt changes; the prior output's semantic issues are not claimed fixed.
+
+Archive and both app/Share Extension dSYMs: `/Volumes/Margarita01/OuiChef-Builds/imports-20260920/OuiChef-1.0-imports.xcarchive`. Sanitized upload receipt: `/Volumes/Margarita01/OuiChef-Builds/imports-20260920/testflight-upload-receipt.json`. Xcode again warned about missing dSYMs for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc; upload succeeded, but crash frames inside those prebuilt dependencies may have limited symbol detail.
+
+No tester-group assignments, Beta App Review submissions, or App Store release submissions were changed.
+
 ## September 20, 2026 — companion redesign, build 7
 
 Oui Chef AI **1.0 (7)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **23:02:05 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; Apple's upload record was **PROCESSING** with no record-level errors or warnings. Tester availability has not been verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
