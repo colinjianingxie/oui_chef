@@ -51,7 +51,7 @@ final class CompanionTests: XCTestCase {
         let old = #"{"id":"job","url":"https://youtu.be/W_-D8PZwtSY","status":"transcribing","message":"Reading captions","createdAt":0,"source":"YouTube"}"#
         var item = try CompanionJSON.decode(RecipeImport.self, old)
         XCTAssertTrue(item.running)
-        XCTAssertEqual(item.progressStage, 1)
+        XCTAssertEqual(item.progressStage, 2)
         item.status = "checking"; item.stage = 4; item.attempt = 2
         item.previewTitle = "Matcha bread"; item.previewIngredients = ["415 g bread flour"]
         item.sourceTitle = "Chinese beef stew"; item.recipeTitle = "Red-braised beef"

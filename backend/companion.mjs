@@ -45,7 +45,7 @@ export async function runImport(db,uid,id,attempt) {
     const profile=JSON.parse(profileDoc.data()?.payload??'{}');
     let evidence={url:claimed.url,text:'',images:[],mediaAttempted:false}, retrievalErrors=[];
     let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
-    const metadata = async source => progress('fetching','Found the source. Reading its written recipe…',0,{
+    const metadata = async source => progress('fetching','Found the source. Reading its metadata and transcript…',0,{
       previewTitle: typeof source.title === 'string' ? source.title.slice(0,500) : null,
       sourceTitle: typeof source.title === 'string' ? source.title.slice(0,500) : null,
       previewCreator: typeof source.creator === 'string' ? source.creator.slice(0,200) : null,
@@ -57,46 +57,32 @@ export async function runImport(db,uid,id,attempt) {
         try {evidence={...evidence,...await readPage(claimed.url,{onMetadata:metadata})};}catch{retrievalErrors.push('The public page could not be read.');}
       } else {
         try {
-          const social=await readSocial(claimed.url,{onMetadata:metadata});
+          const social=await readSocial(claimed.url,{captions:true,translatedCaptions:false,onMetadata:metadata});
           evidence={...evidence,...social};
-          retrieval={source:claimed.source,method:'yt-dlp',extractor:social.extractor,hasTranscript:false};
+          retrievalErrors.push(...social.retrievalErrors);
+          retrieval={source:claimed.source,method:'yt-dlp',extractor:social.extractor,hasTranscript:!!social.transcript,transcriptLanguage:social.transcriptLanguage??null};
         } catch(error) {
           retrievalErrors.push(retrievalError(error));
           retrieval.method='html_fallback';
-          try {evidence={...evidence,...await readPage(claimed.url,{onMetadata:metadata})};}
+          try {
+            const page=await readPage(claimed.url,{captions:true,translatedCaptions:false,onMetadata:metadata});
+            evidence={...evidence,...page}; retrievalErrors.push(...page.retrievalErrors);
+            retrieval.hasTranscript=!!page.transcript; retrieval.transcriptLanguage=page.transcriptLanguage??null;
+          }
           catch{retrievalErrors.push('The public page could not be read.');}
         }
       }
-      await progress('fetching','Reading the description and linked original recipes…',1);
-      evidence.linkedRecipes=[];
-      for(const url of descriptionLinks(evidence.description)) {
-        try {
-          const page=await readPage(url);
-          evidence.linkedRecipes.push({url:page.url,title:page.title,text:page.text.slice(0,20000),structured:page.structured});
-        } catch {retrievalErrors.push('A description link could not be read.');}
-      }
     }
     if(claimed.text)evidence.text+='\nUser-supplied recipe text:\n'+claimed.text;
-    await progress('checking','Checking that this is a food recipe…',2,{retrieval,retrievalErrors});
+    await progress('checking','Checking the metadata and original transcript for a food recipe…',1,{
+      originalTranscript:evidence.transcript?.slice(0,80000)||null,
+      transcriptLanguage:evidence.transcriptLanguage??null,retrieval,retrievalErrors
+    });
     let scope=await classifySource(db,uid,id,evidence), result;
     await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
-    if(scope.scope==='food') {
-      await progress('extracting','Organizing the written ingredients and cooking steps…',3);
-      result=await extractRecipe(db,uid,id,evidence,profile);
-      await ref.update(extractionPreview(result.recipe,'Written source'));
-      if(result.recipe.outcome==='insufficient' && claimed.url) {
-        await progress('extracting','Looking for the creator’s original written recipe…',3,{extractionReason:result.recipe.reason});
-        try {
-          evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result.recipe.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);
-        } catch {retrievalErrors.push('The original written recipe search was unavailable.');}
-        if(evidence.writtenResearch) {
-          result=await extractRecipe(db,uid,id,evidence,profile);
-          await ref.update(extractionPreview(result.recipe,'Written source and recipe research'));
-        }
-      }
-    }
-    if(claimed.url && claimed.source!=='Website' && (scope.scope==='unknown' || result?.recipe.outcome==='insufficient')) {
-      await progress('transcribing','Filling missing details from captions or audio…',3);
+    if(scope.scope==='unknown') await ref.update({failurePoint:'Food classification from metadata and original transcript',extractionReason:scope.reason?.slice(0,1000)||null});
+    if(scope.scope==='food' && claimed.url && claimed.source!=='Website') {
+      await progress('transcribing','Translating the transcript and inspecting video frames…',2);
       evidence.mediaAttempted=true;
       let media;
       try {media=await readSocial(claimed.url,{captions:true,withMedia:true});}
@@ -107,9 +93,9 @@ export async function runImport(db,uid,id,attempt) {
       }
       if(media) {
         retrievalErrors.push(...media.retrievalErrors);
-        evidence.transcript=media.transcript??'';
-        evidence.transcriptLanguage=media.transcriptLanguage??null;
-        evidence.transcriptTranslation=media.transcriptTranslation??'';
+        evidence.transcript=media.transcript||evidence.transcript||'';
+        evidence.transcriptLanguage=media.transcriptLanguage??evidence.transcriptLanguage??null;
+        evidence.transcriptTranslation=media.transcriptTranslation||evidence.transcriptTranslation||'';
         evidence.images=media.images??[];
         if(media.audio) {
           try {
@@ -118,30 +104,39 @@ export async function runImport(db,uid,id,attempt) {
           }
           catch {retrievalErrors.push('Audio transcription was unavailable.');}
         }
-        if(evidence.transcript && !evidence.transcriptTranslation && !/^en(?:-|$)/i.test(evidence.transcriptLanguage??'')) {
-          try {evidence.transcriptTranslation=await translateTranscript(db,uid,id,evidence.transcript,evidence.transcriptLanguage);}
-          catch {retrievalErrors.push('Transcript translation was unavailable.');}
-        }
-        retrieval.hasTranscript=!!evidence.transcript;
-        retrieval.transcriptLanguage=evidence.transcriptLanguage;
-        await progress('transcribing','Reading captions, translation, and video frames…',3,{
-          originalTranscript:evidence.transcript.slice(0,80000)||null,
-          transcriptLanguage:evidence.transcriptLanguage,
-          translatedTranscript:evidence.transcriptTranslation.slice(0,80000)||null,
-          frameSeconds:evidence.images.map(frame=>frame.second),retrieval,retrievalErrors
-        });
-        if(evidence.transcript || evidence.images.length) {
-          scope=await classifySource(db,uid,id,evidence);
-          await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
-          if(scope.scope==='food') {
-            await progress('extracting','Completing the recipe while preserving its written instructions…',3);
-            result=await extractRecipe(db,uid,id,evidence,profile);
-            await ref.update(extractionPreview(result.recipe,evidence.images.length?'Captions, translation, and sampled video frames':'Captions or audio transcript'));
-          } else if(scope.scope==='unknown') {
-            await ref.update({failurePoint:'Recipe classification after media recovery',extractionReason:scope.reason?.slice(0,1000)||null});
-          }
-        } else {
-          await ref.update({failurePoint:'Caption, audio, and frame recovery',extractionReason:retrievalErrors.at(-1)?.slice(0,1000)||'No readable media evidence was recovered.'});
+      }
+      if(evidence.transcript && !evidence.transcriptTranslation && !/^en(?:-|$)/i.test(evidence.transcriptLanguage??'')) {
+        try {evidence.transcriptTranslation=await translateTranscript(db,uid,id,evidence.transcript,evidence.transcriptLanguage);}
+        catch {retrievalErrors.push('Transcript translation was unavailable.');}
+      }
+      retrieval.hasTranscript=!!evidence.transcript;
+      retrieval.transcriptLanguage=evidence.transcriptLanguage;
+    }
+    if(scope.scope==='food') {
+      evidence.linkedRecipes=[];
+      for(const url of descriptionLinks(evidence.description)) {
+        try {
+          const page=await readPage(url);
+          evidence.linkedRecipes.push({url:page.url,title:page.title,text:page.text.slice(0,20000),structured:page.structured});
+        } catch {retrievalErrors.push('A description link could not be read.');}
+      }
+      await progress('transcribing','Source evidence is ready.',2,{
+        originalTranscript:evidence.transcript?.slice(0,80000)||null,
+        transcriptLanguage:evidence.transcriptLanguage??null,
+        translatedTranscript:evidence.transcriptTranslation?.slice(0,80000)||null,
+        frameSeconds:evidence.images.map(frame=>frame.second),retrieval,retrievalErrors
+      });
+      await progress('extracting','Building the ingredients and cooking steps…',3);
+      result=await extractRecipe(db,uid,id,evidence,profile);
+      await ref.update(extractionPreview(result.recipe,evidence.images.length?'Recipe normalization from written evidence, transcript, translation, and sampled video frames':evidence.transcriptTranslation?'Recipe normalization from written evidence, transcript, and translation':evidence.transcript?'Recipe normalization from written evidence and original transcript':'Recipe normalization from written evidence'));
+      if(result.recipe.outcome==='insufficient' && claimed.url) {
+        await progress('extracting','Looking for the creator’s original written recipe…',3,{extractionReason:result.recipe.reason});
+        try {
+          evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result.recipe.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);
+        } catch {retrievalErrors.push('The original written recipe search was unavailable.');}
+        if(evidence.writtenResearch) {
+          result=await extractRecipe(db,uid,id,evidence,profile);
+          await ref.update(extractionPreview(result.recipe,'Recipe normalization after original-recipe research'));
         }
       }
     }

@@ -116,13 +116,13 @@ struct RecipeImport: Codable, Identifiable, Equatable {
     var failurePoint: String?
     var running: Bool { ["queued", "fetching", "transcribing", "extracting", "checking"].contains(status) }
     var hasImportEvidence: Bool { sourceTitle != nil || recipeTitle != nil || originalTranscript != nil || translatedTranscript != nil || previewIngredients != nil || failurePoint != nil }
-    static let stages = ["Read the source", "Read the written recipe", "Check the recipe", "Complete ingredients & steps", "Save to your cookbook"]
+    static let stages = ["Read metadata & transcript", "Check for a food recipe", "Translate & inspect video", "Build ingredients & steps", "Save to your cookbook"]
     var progressStage: Int {
         if let stage { return max(0, min(stage, Self.stages.count)) }
         switch status {
-        case "transcribing": return 1
+        case "transcribing": return 2
         case "extracting": return 3
-        case "checking": return 2
+        case "checking": return 1
         case "ready": return 5
         default: return 0
         }

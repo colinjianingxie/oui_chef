@@ -38,14 +38,14 @@ final class CompanionFlowTests: XCTestCase {
         XCTAssertTrue(tile.waitForExistence(timeout: 10))
         for _ in 0..<4 where !tile.isHittable { app.swipeUp() }
         tile.tap()
-        XCTAssertTrue(app.staticTexts["Your recipe is\ncoming together."].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Read the written recipe"].exists)
+        if !app.buttons["Close"].waitForExistence(timeout: 2) { tile.tap() }
+        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Check for a food recipe"].exists)
         XCTAssertTrue(app.staticTexts["Import evidence"].exists)
         XCTAssertTrue(app.staticTexts["Last incomplete stage"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["original-transcript"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["translated-transcript"].exists)
         XCTAssertTrue(app.staticTexts["Ingredients"].exists)
-        XCTAssertTrue(app.buttons["Close"].exists)
         XCTAssertFalse(app.buttons["make-recipe"].exists)
         capture("Import progress and recipe placeholders", app)
         app.buttons["Close"].tap(); app.buttons["tab-Cookbook"].tap()

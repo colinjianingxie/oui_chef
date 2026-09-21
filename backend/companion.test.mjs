@@ -53,6 +53,9 @@ test('original Chinese captions survive translated-track failures and duplicate 
   const bilingual={retrievalErrors:[]};
   await readCaptions(page,bilingual,async url=>({bytes:Buffer.from(JSON.stringify({events:[{segs:[{utf8:url.includes('lang=zh-CN')?chinese:'Put the beef in cold water.'}]}]}))}));
   assert.equal(bilingual.transcript,chinese);assert.equal(bilingual.transcriptTranslation,'Put the beef in cold water.');
+  const originalOnly={retrievalErrors:[]};
+  await readCaptions(page,originalOnly,async url=>({bytes:Buffer.from(JSON.stringify({events:[{segs:[{utf8:url.includes('lang=zh-CN')?chinese:'Put the beef in cold water.'}]}]}))}),false);
+  assert.equal(originalOnly.transcript,chinese);assert.equal(originalOnly.transcriptTranslation,undefined);
   assert.equal(sampleSeconds(306).length,24);assert.deepEqual([sampleSeconds(306)[0],sampleSeconds(306).at(-1)],[6,300]);
   const mediaFormats=[{url:'https://media/audio',protocol:'https',vcodec:'none',acodec:'opus',ext:'webm'},{url:'https://media/video',protocol:'https',vcodec:'avc1',acodec:'none',ext:'mp4',height:480}];
   assert.equal(mediaFormat(mediaFormats,true).url,'https://media/video');assert.equal(mediaFormat(mediaFormats,false).url,'https://media/audio');
@@ -248,7 +251,7 @@ More: https://creator.example/about https://creator.example/contact`;
   assert.deepEqual(descriptionLinks(),[]);
 });
 
-test('written recipes precede research and media; incomplete and unavailable sources fall back',()=>{
+test('metadata and original transcript gate translation, video, and recipe extraction',()=>{
   execFileSync(process.execPath,['--experimental-test-module-mocks','--input-type=module','-'],{cwd:fileURLToPath(new URL('.',import.meta.url)),input:`
 import {mock} from 'node:test';
 import assert from 'node:assert/strict';
@@ -257,16 +260,20 @@ let mode, events;
 const description='Recipe: https://creator.example/bread';
 mock.module('./import-source.mjs',{namedExports:{...source,
   readSocial:async(url,options={})=>{
-    events.push(options.withMedia?'media':'description');
-    if(mode==='html' && !options.withMedia)throw Error('metadata unavailable');
-    if(options.withMedia)return {transcript:mode==='empty'?'':'Bake until golden.',images:[],retrievalErrors:[]};
-    assert.equal(options.captions,undefined);
+    if(mode==='html' && !options.withMedia){events.push('metadata-error');throw Error('metadata unavailable');}
+    events.push(options.withMedia?'media':'metadata+transcript');
+    if(options.withMedia)return {transcript:'加入牛肉。',transcriptLanguage:'zh-CN',transcriptTranslation:'Add the beef.',images:[],retrievalErrors:[]};
+    assert.equal(options.captions,true);
+    assert.equal(options.translatedCaptions,false);
     await options.onMetadata?.({title:'Bread',creator:'Creator'});
-    return {title:'Bread',description,text:'Written ingredients',extractor:'YouTube'};
+    return {title:'Bread',description,text:'Written ingredients',extractor:'YouTube',transcript:'加入牛肉。',transcriptLanguage:'zh-CN',retrievalErrors:[]};
   },
   readPage:async(url,options={})=>{
-    assert.equal(options.captions,undefined);
-    if(url.includes('youtube.com')){events.push('html');return {description,text:'Written ingredients'};}
+    if(url.includes('youtube.com')){
+      events.push('html-transcript');assert.equal(options.captions,true);assert.equal(options.translatedCaptions,false);
+      await options.onMetadata?.({title:'Bread',creator:'Creator'});
+      return {title:'Bread',description,text:'Written ingredients',transcript:'加入牛肉。',transcriptLanguage:'zh-CN',retrievalErrors:[]};
+    }
     events.push('linked');
     if(mode==='broken-link')throw Error('unavailable');
     return {url,text:'Written method',structured:[{'@type':'Recipe',name:'Bread'}]};
@@ -275,7 +282,7 @@ mock.module('./import-source.mjs',{namedExports:{...source,
 const {runImport}=await import('./companion.mjs');
 process.env.XAI_API_KEY='test-only';
 const recipe={outcome:'recipe',title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'bake',instruction:'Bake.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}]};
-for(mode of ['written','html','research','captions','research-failed','broken-link','empty','unknown','non_food']){
+for(mode of ['food','html','research','research-failed','broken-link','unknown','non_food']){
   events=[];
   const path='users/owner/imports/check', records=new Map([[path,{url:'https://www.youtube.com/watch?v=W_-D8PZwtSY',source:'YouTube',status:'queued',attempt:1}]]);
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),set:async value=>records.set(path,value),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>ref.set(value),update:(ref,value)=>ref.update(value)})};
@@ -288,23 +295,33 @@ for(mode of ['written','html','research','captions','research-failed','broken-li
       if(mode==='research-failed')throw Error('provider unavailable');
       return {ok:true,status:200,json:async()=>({output:[{content:[{type:'output_text',text:'Original written recipe research'}]}]})};
     }
-    const evidence=Object.assign({},...body.messages[1].content.map(c=>JSON.parse(c.text).evidence));
+    const evidence=Object.assign({},...body.messages[1].content.filter(c=>c.type==='text').map(c=>JSON.parse(c.text).evidence));
     const scopeCall=body.response_format.json_schema.name==='recipe_scope';
     events.push(scopeCall?'scope':'extract');
     assert.equal(evidence.text,'Written ingredients');
-    assert.equal(evidence.linkedRecipes.length,mode==='broken-link'?0:1);
-    if(evidence.transcript)assert.equal(evidence.mediaAttempted,true);
-    const complete=['written','html'].includes(mode) || (mode==='research' && evidence.writtenResearch) || !!evidence.transcript;
-    const result=scopeCall?{scope:mode==='non_food'?'non_food':mode==='unknown'&&!evidence.transcript?'unknown':'food',reason:'fixture'}:complete?recipe:{outcome:'insufficient',reason:'Missing steps'};
+    assert.equal(evidence.transcript,'加入牛肉。');
+    if(scopeCall){
+      assert.equal(evidence.transcriptTranslation,undefined);
+      assert.equal(evidence.mediaAttempted,false);
+      assert.equal(evidence.linkedRecipes,undefined);
+    } else {
+      assert.equal(evidence.transcriptTranslation,'Add the beef.');
+      assert.equal(evidence.mediaAttempted,true);
+      assert.equal(evidence.linkedRecipes.length,mode==='broken-link'?0:1);
+    }
+    const complete=!['research','research-failed'].includes(mode) || !!evidence.writtenResearch;
+    const result=scopeCall?{scope:mode==='non_food'?'non_food':mode==='unknown'?'unknown':'food',reason:'fixture'}:complete?recipe:{outcome:'insufficient',reason:'Missing steps'};
     return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]})};
   };
   await runImport(db,'owner','check',1);
-  assert.equal(records.get(path).status,['non_food','empty'].includes(mode)?'skipped':'ready',mode);
-  const prefix=mode==='html'?['description','html','linked','scope']:['description','linked','scope'];
-  const suffix=mode==='non_food'?[]:mode==='unknown'?['media','scope','extract']:['written','html'].includes(mode)?['extract']:mode==='research'?['extract','research','extract']:mode==='empty'?['extract','research','extract','media']:mode==='research-failed'?['extract','research','media','scope','extract']:['extract','research','extract','media','scope','extract'];
+  assert.equal(records.get(path).status,['non_food','unknown','research-failed'].includes(mode)?'skipped':'ready',mode);
+  if(mode==='unknown')assert.equal(records.get(path).failurePoint,'Food classification from metadata and original transcript');
+  if(mode==='research-failed')assert.equal(records.get(path).failurePoint,'Recipe normalization from written evidence, transcript, and translation');
+  const prefix=mode==='html'?['metadata-error','html-transcript','scope']:['metadata+transcript','scope'];
+  const suffix=['non_food','unknown'].includes(mode)?[]:mode==='research'?['media','linked','extract','research','extract']:mode==='research-failed'?['media','linked','extract','research']:['media','linked','extract'];
   assert.deepEqual(events,[...prefix,...suffix],mode);
   const saved=records.get('users/owner/cookbook/check');
-  assert.equal(!!saved,!['non_food','empty'].includes(mode));
+  assert.equal(!!saved,!['non_food','unknown','research-failed'].includes(mode));
 }
 ` ,stdio:'pipe'});
 });

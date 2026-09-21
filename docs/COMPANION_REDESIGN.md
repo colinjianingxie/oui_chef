@@ -191,3 +191,9 @@ The account owning the reported braised-beef import was verified through Firebas
 ### Import evidence and video-frame deployment — September 21
 
 Committed source `f5aa75d` was built by Cloud Build `1b798c40-8dec-4276-aa87-6cc08daa246d` and deployed as `oui-chef-voice-evidence-f5aa75d`, serving 100% of traffic. Image digest: `sha256:1b16f18a2408d824c2f3f91e534c2a9bc0120ebb9ce83c179cb03ec7452681a0`. The existing environment, secrets, runtime identity, CPU/memory, concurrency and timeout were preserved. Health returned 200; unauthenticated imports returned 401 and unsigned worker calls returned 403.
+
+### Layered recipe parsing — September 21
+
+Social imports now read title, creator, description, and only the original-language transcript before classification. `food` advances to translated captions or model translation, sampled video frames, linked written recipes, and one evidence-complete normalization pass. `unknown` and `non_food` stop before translation, media download, research, or recipe generation. If normalization still lacks a supported cooking sequence, the existing original-recipe research fallback may supply written evidence for one final extraction.
+
+The app shows the same five layers in progress and retains the source metadata, original transcript, English translation, sampled frame timestamps, captured ingredients, and last incomplete layer. Prompt version `companion-7` records this ordering. Verification passed all 29 runnable backend tests, all 30 Swift core tests, and the focused iOS import-progress journey; three Firebase-emulator-only backend tests remained skipped.

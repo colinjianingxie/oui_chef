@@ -163,7 +163,7 @@ export function mediaFormat(formats, hasTranscript) {
   const audio = available.find(format => format.vcodec === 'none' && format.acodec !== 'none');
   return hasTranscript ? videos[0] ?? audio : combined ?? audio;
 }
-export async function readCaptions(tracks, result, fetchSource = safeFetch) {
+export async function readCaptions(tracks, result, fetchSource = safeFetch, includeTranslation = true) {
   let found = false;
   for (const track of tracks) {
     try {
@@ -174,7 +174,7 @@ export async function readCaptions(tracks, result, fetchSource = safeFetch) {
         if (!found) {
           result.transcript = transcript.slice(0,80000); result.transcriptLanguage = language;
           result.hasTranscript = true; found = true;
-          if (/^en(?:-|$)/i.test(language ?? '')) return;
+          if (!includeTranslation || /^en(?:-|$)/i.test(language ?? '')) return;
         } else if (/^en(?:-|$)/i.test(language ?? '')) {
           result.transcriptTranslation = transcript.slice(0,80000);
           result.transcriptTranslationLanguage = language;
@@ -185,7 +185,7 @@ export async function readCaptions(tracks, result, fetchSource = safeFetch) {
   }
   if (!found) result.retrievalErrors.push(tracks.length ? 'Caption tracks were listed, but returned no readable captions.' : 'No caption tracks were exposed by the source.');
 }
-export async function readPage(url, { captions = false, onMetadata = async () => {} } = {}) {
+export async function readPage(url, { captions = false, translatedCaptions = true, onMetadata = async () => {} } = {}) {
   const page = await safeFetch(url);
   if (!/text\/|json|xml/.test(page.headers['content-type'] ?? 'text/html')) throw new Error('Share a recipe page or video post.');
   const directory = await mkdtemp(join(tmpdir(), 'oui-page-'));
@@ -196,13 +196,13 @@ export async function readPage(url, { captions = false, onMetadata = async () =>
     const result = { ...JSON.parse(stdout), url: page.url, hasTranscript: false, retrievalErrors: [] };
     await onMetadata(result);
     if (youtube && captions) {
-      await readCaptions(captionTracks(result), result);
+      await readCaptions(captionTracks(result), result, safeFetch, translatedCaptions);
     }
     delete result.captionTracks;
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
-export async function readSocial(url, { withMedia = false, captions = false, onMetadata = async () => {} } = {}) {
+export async function readSocial(url, { withMedia = false, captions = false, translatedCaptions = true, onMetadata = async () => {} } = {}) {
   if (sourceName(url) === 'Website') return { text: '', images: [] };
   const proxy = await mediaProxy(), directory = await mkdtemp(join(tmpdir(), 'oui-media-'));
   try {
@@ -212,10 +212,10 @@ export async function readSocial(url, { withMedia = false, captions = false, onM
       extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
     await onMetadata(result);
     if (captions || withMedia) {
-      await readCaptions(captionTracks(meta), result);
+      await readCaptions(captionTracks(meta), result, safeFetch, translatedCaptions);
       if (!result.hasTranscript && sourceName(url) === 'YouTube') {
         try {
-          const page = await readPage(url, { captions: true });
+          const page = await readPage(url, { captions: true, translatedCaptions });
           result.retrievalErrors.push(...page.retrievalErrors);
           if (page.hasTranscript) {
             result.transcript = page.transcript; result.transcriptLanguage = page.transcriptLanguage;
@@ -225,7 +225,7 @@ export async function readSocial(url, { withMedia = false, captions = false, onM
         } catch { result.retrievalErrors.push('The public video captions could not be read.'); }
       }
     }
-    // Media is only requested after written extraction is insufficient. Sample frames even when captions exist.
+    // Media is requested only after the source is classified as food. Sample frames even when captions exist.
     if (withMedia && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
       try {
         const format = mediaFormat(meta.formats, result.hasTranscript);
