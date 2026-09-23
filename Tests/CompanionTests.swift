@@ -77,6 +77,12 @@ final class CompanionTests: XCTestCase {
             ingredients: [RecipeIngredient(id: "flour", name: "Flour", quantity: "Amount not specified")],
             steps: [RecipeStep(id: "proof1", title: "First proof", instruction: "Rest until doubled.", stage: "First proof", durationSeconds: 60), RecipeStep(id: "proof2", title: "Second proof", instruction: "Rest until puffy.", stage: "Second proof")])
     }
+    func testYouTubeRecipeUsesItsVideoThumbnail() {
+        var saved = recipe(); saved.sourceName = "YouTube"; saved.sourceURL = "https://www.youtube.com/watch?v=W_-D8PZwtSY"
+        XCTAssertEqual(saved.youtubeThumbnailURL?.absoluteString, "https://i.ytimg.com/vi/W_-D8PZwtSY/hqdefault.jpg")
+        saved.sourceURL = "https://www.youtube.com/watch?v=../../local"
+        XCTAssertNil(saved.youtubeThumbnailURL)
+    }
     func testMinimalRecipeAcceptsUnknownEquipmentAmountsAndTiming() throws {
         let recipe = recipe(); try recipe.validate()
         XCTAssertTrue(recipe.equipment.isEmpty)

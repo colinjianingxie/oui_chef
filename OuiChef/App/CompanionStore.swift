@@ -463,6 +463,8 @@ final class CompanionStore {
         archive.recipes = [recipe]
         if ProcessInfo.processInfo.arguments.contains("--companion-import-progress") {
             imports = [RecipeImport(id: "preview-import", url: "https://youtu.be/W_-D8PZwtSY", status: "extracting", message: "Completing the recipe while preserving its written instructions…", createdAt: Self.now, source: "YouTube", stage: 3, previewTitle: "Matcha Streusel Bread", previewCreator: "All Cooking Stuff", previewIngredients: ["415 g bread flour", "5 g matcha powder"], sourceTitle: "Matcha Streusel Bread", sourceDurationSeconds: 306, sourceExtractor: "YouTube", recipeTitle: "Matcha Streusel Bread", originalTranscript: "[58.6s] 第一步，准备面团。", transcriptLanguage: "zh-CN", translatedTranscript: "[58.6s] Step one: prepare the dough.", frameSeconds: [10, 30, 50], extractionReason: "The written description did not include all cooking steps.", failurePoint: "Written source")]
+        } else if ProcessInfo.processInfo.arguments.contains("--companion-import-ready") {
+            imports = [RecipeImport(id: "preview-import", url: "https://youtu.be/W_-D8PZwtSY", status: "ready", message: "Your recipe is ready.", recipeID: recipe.id, createdAt: Self.now, source: "YouTube", previewTitle: recipe.title, previewIngredients: ["225 g pasta"], previewSteps: ["Boil the pasta"])]; focusedImportID = "preview-import"; showImport = true
         }
     }
     #endif

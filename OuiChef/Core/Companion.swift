@@ -29,6 +29,12 @@ struct CompanionRecipe: Codable, Identifiable, Equatable {
     var version = 1
 
     var timeLabel: String { totalMinutes.map { $0 >= 60 ? "\($0 / 60) hr\($0 % 60 == 0 ? "" : " \($0 % 60) min")" : "\($0) min" } ?? "Go by the cues" }
+    var youtubeThumbnailURL: URL? {
+        guard sourceName == "YouTube", let source = URLComponents(string: sourceURL), source.host == "www.youtube.com",
+              let id = source.queryItems?.first(where: { $0.name == "v" })?.value,
+              id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else { return nil }
+        return URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
+    }
     var stages: [String] { steps.reduce(into: []) { if !$0.contains($1.stage) { $0.append($1.stage) } } }
     func validate() throws {
         guard !id.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

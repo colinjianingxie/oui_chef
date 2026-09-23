@@ -331,15 +331,20 @@ struct CompanionHome: View {
 struct RecipePhoto: View {
     let recipe: CompanionRecipe
     @State private var downloaded: UIImage?
+    @State private var useSourceThumbnail = false
     var body: some View {
         GeometryReader { geometry in
             Group {
                 if recipe.id == "preview-pasta" { Image("WelcomeFood").resizable().scaledToFill() }
-                else if let downloaded { Image(uiImage: downloaded).resizable().scaledToFill() } else { placeholder }
+                else if let downloaded { Image(uiImage: downloaded).resizable().scaledToFill() }
+                else if useSourceThumbnail, let url = recipe.youtubeThumbnailURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
+                } else { placeholder }
             }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
         }.accessibilityLabel(recipe.title).task(id: recipe.imagePath) {
-            guard let uid = Auth.auth().currentUser?.uid, let path = recipe.imagePath, path.hasPrefix("users/\(uid)/recipeMedia/\(recipe.id)/cover-") else { return }
-            if let data = try? await Storage.storage().reference().child(path).data(maxSize: 2_000_000), Auth.auth().currentUser?.uid == uid { downloaded = UIImage(data: data) }
+            guard let uid = Auth.auth().currentUser?.uid, let path = recipe.imagePath, path.hasPrefix("users/\(uid)/recipeMedia/\(recipe.id)/cover-") else { useSourceThumbnail = true; return }
+            if let data = try? await Storage.storage().reference().child(path).data(maxSize: 2_000_000), Auth.auth().currentUser?.uid == uid, let image = UIImage(data: data) { downloaded = image }
+            else { useSourceThumbnail = true }
         }
     }
     private var placeholder: some View {
@@ -353,7 +358,6 @@ private struct RecipeTile: View {
             RecipePhoto(recipe: recipe).frame(height: 155).clipShape(RoundedRectangle(cornerRadius: 17)).overlay(alignment: .topTrailing) { if recipe.favorite { Image(systemName: "heart.fill").font(.caption).padding(9).background(Theme.cream, in: Circle()).padding(8) } }
             Text(recipe.title).font(Theme.serif(20)).lineLimit(2).multilineTextAlignment(.leading)
             Text(recipe.timeLabel + " · " + recipe.sourceName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if !recipe.reviewed { Text("READY TO REVIEW").font(.system(size: 9, weight: .semibold)).tracking(1).foregroundStyle(Theme.green) }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -405,12 +409,35 @@ struct CompanionImportView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
                     if let item = focusedImport {
-                        Text(item.status == "ready" ? "Your recipe is ready." : item.running ? "Your recipe is\ncoming together." : "Let’s try that again.").font(Theme.serif(37))
-                        importRow(item)
-                        ImportRecipePreview(item: item)
-                        if !item.running {
-                            Button("Import another recipe") { store.focusedImportID = nil; url = ""; recipeText = "" }.font(.subheadline)
+                        if item.status == "ready" {
+                            Text("Your recipe is ready.").font(Theme.serif(37))
+                            if let recipe = store.recipes.first(where: { $0.id == item.recipeID }) {
+                                RecipePhoto(recipe: recipe).frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 20))
+                                Text(recipe.title).font(Theme.serif(28))
+                                if !recipe.warnings.isEmpty {
+                                    VStack(alignment: .leading, spacing: 9) {
+                                        Label("Before you cook", systemImage: "exclamationmark.circle").font(.headline)
+                                        ForEach(recipe.warnings, id: \.self) { Text($0).font(.subheadline) }
+                                    }.padding(18).background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+                                }
+                                Button("Start cooking") {
+                                    let accountID = store.uid
+                                    dismiss()
+                                    Task {
+                                        try? await Task.sleep(for: .milliseconds(400))
+                                        guard store.uid == accountID else { return }
+                                        store.start(recipe)
+                                        if store.showCooking { await store.enableNotifications() }
+                                    }
+                                }.buttonStyle(FilledButton()).accessibilityIdentifier("start-imported-recipe")
+                                Text("Saved to your cookbook.").font(.caption).foregroundStyle(.secondary)
+                            } else { ProgressView("Opening your recipe…") }
+                        } else {
+                            Text(item.running ? "Your recipe is\ncoming together." : "Let’s try that again.").font(Theme.serif(37))
+                            importRow(item)
+                            ImportRecipePreview(item: item)
                         }
+                        if !item.running { Button("Import another recipe") { store.focusedImportID = nil; url = ""; recipeText = "" }.font(.subheadline) }
                     } else {
                         Text("Turn any recipe\ninto your recipe.").font(Theme.serif(37))
                         Text("Bring the ingredients and instructions. Your chef will turn them into a recipe you can cook.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
@@ -506,9 +533,7 @@ struct CompanionImportView: View {
                 evidenceDisclosure("Translated transcript", text: item.translatedTranscript, identifier: "translated-transcript")
                 evidenceDisclosure("Video observations", text: item.videoObservations, identifier: "video-observations")
             }
-            if item.status == "ready", let recipe = store.recipes.first(where: { $0.id == item.recipeID }) {
-                Button("Review \(recipe.title) →") { dismiss(); Task { try? await Task.sleep(for: .milliseconds(400)); store.selectedRecipe = recipe } }.font(.subheadline.weight(.medium))
-            } else if item.running {
+            if item.running {
                 HStack { Text("You can leave. We’ll keep working.").font(.caption); Spacer(); Button("Cancel") { Task { await store.cancelImport(item.id) } }.font(.caption) }
             } else if ["failed","skipped","canceled"].contains(item.status) {
                 Button("Try again or paste recipe text") { url = item.url; textMode = item.url.isEmpty; store.focusedImportID = nil }.font(.subheadline)
@@ -605,9 +630,8 @@ struct CompanionRecipeView: View {
                 }.padding(24)
             }.background(Theme.cream).foregroundStyle(Theme.ink)
             .safeAreaInset(edge: .bottom) {
-                Button(preparation ? "Let’s cook" : recipe.reviewed ? "Start cooking" : "Save to my cookbook") {
+                Button(preparation ? "Let’s cook" : "Start cooking") {
                     if preparation { store.start(recipe); dismiss(); Task { await store.enableNotifications() } }
-                    else if !recipe.reviewed { recipe.reviewed = true; store.saveRecipe(recipe) }
                     else { withAnimation { preparation = true } }
                 }.buttonStyle(FilledButton()).disabled(preparation && !recipe.warnings.isEmpty && !acceptedWarnings).padding(.horizontal, 24).padding(.vertical, 12).background(Theme.cream)
             }

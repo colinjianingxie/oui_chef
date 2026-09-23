@@ -53,6 +53,18 @@ final class CompanionFlowTests: XCTestCase {
         capture("Import in the cookbook", app)
     }
 
+    func testCompletedImportStartsCookingWithoutReview() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-import-ready"]; app.launch()
+        let start = app.buttons["start-imported-recipe"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Import evidence"].exists)
+        XCTAssertFalse(app.staticTexts["Cooking steps"].exists)
+        start.tap()
+        XCTAssertTrue(app.buttons["complete-step"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Get the pasta going"].exists)
+    }
+
     func testImportModesAndButtonLayout() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
