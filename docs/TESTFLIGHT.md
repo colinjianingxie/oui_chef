@@ -1,5 +1,15 @@
 # TestFlight
 
+## September 22, 2026 — direct cooking from imports, build 13
+
+Oui Chef AI **1.0 (13)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **02:42:50 UTC on September 23**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `6b46bd3`, pushed to `main`. Upload ID: `a8b0ca02-a23b-4c48-959e-316d4dc4a630`. Completed link imports now offer **Start cooking** without showing parsed evidence; saved YouTube recipes use the video's thumbnail when a stored cover is unavailable. The existing parser backend was unchanged.
+
+Verification: 31 Swift core tests and 32 backend tests passed; three emulator-only backend tests were skipped. The focused simulator direct-start journey and final iOS build passed. The signed Release archive and app/Share Extension dSYMs are at `/Users/xie/Library/Developer/Xcode/Archives/2026-09-22/OuiChef-1.0-direct-start-6b46bd3.xcarchive`. Xcode repeated the existing missing-dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc; upload succeeded, but crash frames inside those dependencies may have limited symbols. The source/archive build setting remains 1.0 (2); Xcode assigned upload build 13.
+
+No tester assignments, Beta App Review submissions, or App Store release submissions were changed.
+
 ## September 22, 2026 — video recipe evidence, build 12
 
 Oui Chef AI **1.0 (12)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **00:56:40 UTC on September 23**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
