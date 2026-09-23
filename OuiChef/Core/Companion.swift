@@ -111,11 +111,12 @@ struct RecipeImport: Codable, Identifiable, Equatable {
     var originalTranscript: String?
     var transcriptLanguage: String?
     var translatedTranscript: String?
+    var videoObservations: String?
     var frameSeconds: [Double]?
     var extractionReason: String?
     var failurePoint: String?
     var running: Bool { ["queued", "fetching", "transcribing", "extracting", "checking"].contains(status) }
-    var hasImportEvidence: Bool { sourceTitle != nil || recipeTitle != nil || originalTranscript != nil || translatedTranscript != nil || previewIngredients != nil || failurePoint != nil }
+    var hasImportEvidence: Bool { sourceTitle != nil || recipeTitle != nil || originalTranscript != nil || translatedTranscript != nil || videoObservations != nil || previewIngredients != nil || failurePoint != nil }
     static let stages = ["Read metadata & transcript", "Check for a food recipe", "Translate & inspect video", "Build ingredients & steps", "Save to your cookbook"]
     var progressStage: Int {
         if let stage { return max(0, min(stage, Self.stages.count)) }

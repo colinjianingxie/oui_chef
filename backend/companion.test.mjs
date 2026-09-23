@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeURL, publicAddress, sourceName, importInput, captionText, captionTracks, readCaptions, sampleSeconds, mediaFormat, retrievalError, descriptionLinks } from './import-source.mjs';
-import { validateRecipe } from './recipe-agent.mjs';
+import { classifySource, validateRecipe } from './recipe-agent.mjs';
 import { importTaskID, handleCompanion, runImport } from './companion.mjs';
 import { sessionUpdate } from './xai.mjs';
 
@@ -56,9 +56,11 @@ test('original Chinese captions survive translated-track failures and duplicate 
   const originalOnly={retrievalErrors:[]};
   await readCaptions(page,originalOnly,async url=>({bytes:Buffer.from(JSON.stringify({events:[{segs:[{utf8:url.includes('lang=zh-CN')?chinese:'Put the beef in cold water.'}]}]}))}),false);
   assert.equal(originalOnly.transcript,chinese);assert.equal(originalOnly.transcriptTranslation,undefined);
-  assert.equal(sampleSeconds(306).length,24);assert.deepEqual([sampleSeconds(306)[0],sampleSeconds(306).at(-1)],[6,300]);
+  assert.equal(sampleSeconds(306).length,24);assert.deepEqual([sampleSeconds(306)[0],sampleSeconds(306).at(-1)],[6.38,299.63]);
+  assert.equal(sampleSeconds(18).length,18);assert.ok(sampleSeconds(0.1).every(t=>t<0.1));assert.deepEqual(sampleSeconds(null),[]);
   const mediaFormats=[{url:'https://media/audio',protocol:'https',vcodec:'none',acodec:'opus',ext:'webm'},{url:'https://media/video',protocol:'https',vcodec:'avc1',acodec:'none',ext:'mp4',height:480}];
-  assert.equal(mediaFormat(mediaFormats,true).url,'https://media/video');assert.equal(mediaFormat(mediaFormats,false).url,'https://media/audio');
+  assert.equal(mediaFormat(mediaFormats,'video').url,'https://media/video');assert.equal(mediaFormat(mediaFormats,'audio').url,'https://media/audio');
+  assert.equal(mediaFormat([{url:'https://media/portrait',protocol:'https',vcodec:'avc1',acodec:'none',ext:'mp4',width:360,height:640}],'video').url,'https://media/portrait');
   // Manual captions must not overwrite the original automatic track with the same language.
   assert.deepEqual(captionTracks({subtitles:{zh:formats('zh')},automatic_captions:{zh:formats('zh')}}).map(t=>t.kind),['manual','automatic','manual','automatic']);
 });
@@ -111,7 +113,7 @@ test('non-food and unknown sources stop before extraction; pasted food saves wit
     };
     await runImport(db,'owner','text1',1);
     assert.equal(records.get(path).status,scope==='food'?'ready':scope==='malformed'?'failed':'skipped');
-    assert.deepEqual(calls,scope==='food'?['recipe_scope','cooking_recipe']:['recipe_scope']);
+    assert.deepEqual(calls,scope==='food'?['recipe_scope','cooking_recipe','cooking_recipe']:['recipe_scope']);
     const saved=records.get('users/owner/cookbook/text1');
     assert.equal(!!saved,scope==='food');
     if(saved){const recipe=JSON.parse(saved.payload);assert.equal(recipe.sourceURL,'');assert.equal(recipe.sourceName,'Pasted text');assert.equal(records.get(path).stage,5);assert.deepEqual(records.get(path).previewIngredients,['1 slice Bread']);assert.deepEqual(records.get(path).previewSteps,['Toast until golden.']);}
@@ -124,6 +126,16 @@ test('recipe minimum is ingredients and steps; dangling references and invalid t
   assert.throws(()=>validateRecipe({...recipe,steps:[]}));
   assert.throws(()=>validateRecipe({...recipe,steps:[{...recipe.steps[0],durationSeconds:-1}]}));
   assert.throws(()=>validateRecipe({...recipe,steps:[{...recipe.steps[0],ingredients:[{ingredientID:'not-found'}]}]}));
+});
+test('social metadata cannot reject an unseen cooking video, but actual non-food evidence still can',async t=>{
+  const previous=globalThis.fetch,key=process.env.XAI_API_KEY;
+  t.after(()=>{globalThis.fetch=previous;if(key===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;});
+  process.env.XAI_API_KEY='test-only';
+  globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify({scope:'non_food',reason:'Eating video'})}}]})});
+  const db={doc:()=>({set:async()=>{},update:async()=>{}})},source={url:'https://www.youtube.com/shorts/86NHFK1RAJ0',title:'would you eat this? #asmr #cooking',images:[]};
+  assert.equal((await classifySource(db,'owner','job',source)).scope,'unknown');
+  assert.equal((await classifySource(db,'owner','job',{...source,videoObservations:'The person only eats prepared food.'})).scope,'non_food');
+  assert.equal((await classifySource(db,'owner','job',{url:'',text:'Make household soap.'})).scope,'non_food');
 });
 test('imported recipes get contextual cooking tools independent of curated chef styles',()=>{
   const result=sessionUpdate({companionVersion:2,profile:{voiceLanguage:'Mandarin'},session:{recipe:{title:'Dumplings'}}});
@@ -201,7 +213,7 @@ test('AI extraction logs provider, actual model and token usage without saving s
     assert.equal(url,'https://api.x.ai/v1/chat/completions');
     const body=JSON.parse(request.body);assert.equal(body.response_format.json_schema.strict,true);
     assert.match(body.messages[0].content,/Only ingredients and actionable steps are required/);
-    assert.match(body.messages[0].content,/translate the supported cooking sequence into English/);
+    assert.match(body.messages[0].content,/preferences.voiceLanguage \(English if absent\)/);
     const media=JSON.parse(body.messages[1].content[1].text).evidence;
     assert.equal(media.transcript,'[88.51s] 冷水下锅。');assert.equal(media.transcriptTranslation,'[88.51s] Put it in cold water.');
     return {ok:true,status:200,json:async()=>({id:'provider-request',model:'resolved-model-version',usage:{prompt_tokens:42,completion_tokens:12},choices:[{finish_reason:'stop',message:{content:JSON.stringify({outcome:'insufficient',reason:'Ingredients without cooking instructions.'})}}]})};
@@ -251,7 +263,42 @@ More: https://creator.example/about https://creator.example/contact`;
   assert.deepEqual(descriptionLinks(),[]);
 });
 
-test('metadata and original transcript gate translation, video, and recipe extraction',()=>{
+test('native public-video evidence keeps original speech and normalizes timestamps',()=>{
+  execFileSync(process.execPath,['--experimental-test-module-mocks','--input-type=module','-'],{cwd:import.meta.dirname,input:`
+import {mock} from 'node:test';
+import assert from 'node:assert/strict';
+import * as firebase from 'firebase-admin/app';
+mock.module('firebase-admin/app',{namedExports:{...firebase,applicationDefault:()=>({getAccessToken:async()=>({access_token:'test-token'})})}});
+process.env.GOOGLE_CLOUD_PROJECT='recipe-test';process.env.YOUTUBE_VIDEO_MODEL='gemini-2.5-flash';
+const {inspectYouTube}=await import('./recipe-agent.mjs');
+const records=new Map(),db={doc:path=>({set:async v=>records.set(path,v),update:async v=>records.set(path,{...records.get(path),...v})})};
+let mode='valid',sampleRates=[];
+globalThis.fetch=async(url,request)=>{
+  assert.match(url,/aiplatform.googleapis.com/);assert.equal(request.headers.Authorization,'Bearer test-token');
+  const body=JSON.parse(request.body);assert.equal(body.model,undefined);
+  assert.equal(body.generationConfig.responseSchema.properties.transcript.maxItems,undefined,'large array schema bounds are rejected by Vertex');
+  assert.equal(body.contents[0].parts[0].videoMetadata.endOffset,'1200s');
+  sampleRates.push(body.contents[0].parts[0].videoMetadata.fps);
+  assert.equal(body.contents[0].parts[0].fileData.fileUri,'https://www.youtube.com/watch?v=d31CCyGSGZA');
+  const evidence={available:true,duration:'05:06.000',transcriptLanguage:'zh',transcript:[{timestamp:'03:16.900',text:'上汽后压20到25分钟。'}],observations:[{timestamp:mode==='bad'?'06:00.000':'03:19.000',text:'Steam subsides before the lid opens.'}]};
+  if(mode==='silent')Object.assign(evidence,{duration:'00:17.600',transcriptLanguage:null,transcript:[],observations:[{timestamp:'00:12.500',text:'A dark glaze is added before the top bread.'}]});
+  return {ok:true,status:200,json:async()=>({modelVersion:'gemini-test',usageMetadata:{totalTokenCount:17},candidates:[{finishReason:mode==='truncated'?'MAX_TOKENS':'STOP',content:{parts:[{text:JSON.stringify(evidence)}]}}]})};
+};
+const evidence=await inspectYouTube(db,'owner','job','https://youtu.be/d31CCyGSGZA');
+assert.equal(evidence.duration,306);assert.equal(evidence.transcript,'[196.9s] 上汽后压20到25分钟。');
+assert.deepEqual(sampleRates,[1]);
+assert.match(evidence.videoObservations,/\\[199s\\]/);
+const run=records.get('aiRuns/'+evidence.runID);assert.equal(run.provider,'google');assert.equal(run.model,'gemini-test');assert.equal(run.usage.totalTokenCount,17);
+await assert.rejects(inspectYouTube(db,'owner','job','https://example.com/video'));
+for(mode of ['bad','truncated'])await assert.rejects(inspectYouTube(db,'owner','job','https://youtu.be/d31CCyGSGZA'));
+mode='silent';sampleRates=[];
+const silent=await inspectYouTube(db,'owner','job','https://youtu.be/d31CCyGSGZA');
+assert.deepEqual(sampleRates,[1,4]);assert.equal(silent.transcript,'');assert.equal(silent.transcriptLanguage,null);
+assert.match(silent.videoObservations,/before the top bread/);
+`,stdio:'pipe'});
+});
+
+test('imports recover missing evidence before normalization and use the saved language',()=>{
   execFileSync(process.execPath,['--experimental-test-module-mocks','--input-type=module','-'],{cwd:fileURLToPath(new URL('.',import.meta.url)),input:`
 import {mock} from 'node:test';
 import assert from 'node:assert/strict';
@@ -262,11 +309,11 @@ mock.module('./import-source.mjs',{namedExports:{...source,
   readSocial:async(url,options={})=>{
     if(mode==='html' && !options.withMedia){events.push('metadata-error');throw Error('metadata unavailable');}
     events.push(options.withMedia?'media':'metadata+transcript');
-    if(options.withMedia)return {transcript:'加入牛肉。',transcriptLanguage:'zh-CN',transcriptTranslation:'Add the beef.',images:[],retrievalErrors:[]};
+    if(options.withMedia)return mode==='visual'?{images:[{second:1,data:'AA=='}],retrievalErrors:[]}:mode==='speech'?{audio:Buffer.from('speech'),images:[],retrievalErrors:[]}:{transcript:'加入牛肉。',transcriptLanguage:'zh-CN',images:[],retrievalErrors:[]};
     assert.equal(options.captions,true);
     assert.equal(options.translatedCaptions,false);
     await options.onMetadata?.({title:'Bread',creator:'Creator'});
-    return {title:'Bread',description,text:'Written ingredients',extractor:'YouTube',transcript:'加入牛肉。',transcriptLanguage:'zh-CN',retrievalErrors:[]};
+    return {title:'Bread',description,text:'Written ingredients',extractor:'YouTube',transcript:['visual','speech'].includes(mode)?'':'加入牛肉。',transcriptLanguage:'zh-CN',retrievalErrors:[]};
   },
   readPage:async(url,options={})=>{
     if(url.includes('youtube.com')){
@@ -282,12 +329,23 @@ mock.module('./import-source.mjs',{namedExports:{...source,
 const {runImport}=await import('./companion.mjs');
 process.env.XAI_API_KEY='test-only';
 const recipe={outcome:'recipe',title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'bake',instruction:'Bake.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}]};
-for(mode of ['food','html','research','research-failed','broken-link','unknown','non_food']){
+for(mode of ['food','html','research','research-failed','broken-link','unknown','non_food','spanish','visual','speech']){
   events=[];
   const path='users/owner/imports/check', records=new Map([[path,{url:'https://www.youtube.com/watch?v=W_-D8PZwtSY',source:'YouTube',status:'queued',attempt:1}]]);
+  if(mode==='spanish')records.set('users/owner/settings/cooking',{payload:JSON.stringify({voiceLanguage:'Spanish'})});
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),set:async value=>records.set(path,value),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>ref.set(value),update:(ref,value)=>ref.update(value)})};
   globalThis.fetch=async(url,request)=>{
+    if(url.endsWith('/stt')){
+      events.push('transcribe');assert.ok(request.body instanceof FormData);
+      return {ok:true,status:200,json:async()=>({text:'加入牛肉。',language:'zh-CN'})};
+    }
     const body=JSON.parse(request.body);
+    if(url.endsWith('/chat/completions') && !body.response_format){
+      events.push('translate');
+      const request=JSON.parse(body.messages[1].content);
+      assert.equal(request.targetLanguage,mode==='spanish'?'Spanish':'English');
+      return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:mode==='spanish'?'Añade la carne.':'Add the beef.'}}]})};
+    }
     if(url.endsWith('/responses')){
       events.push('research');
       assert.match(body.input[0].content,/written recipe/);
@@ -295,30 +353,31 @@ for(mode of ['food','html','research','research-failed','broken-link','unknown',
       if(mode==='research-failed')throw Error('provider unavailable');
       return {ok:true,status:200,json:async()=>({output:[{content:[{type:'output_text',text:'Original written recipe research'}]}]})};
     }
-    const evidence=Object.assign({},...body.messages[1].content.filter(c=>c.type==='text').map(c=>JSON.parse(c.text).evidence));
+    const evidence=Object.assign({},...body.messages[1].content.filter(c=>c.type==='text'&&c.text.startsWith('{')).map(c=>JSON.parse(c.text).evidence));
     const scopeCall=body.response_format.json_schema.name==='recipe_scope';
     events.push(scopeCall?'scope':'extract');
     assert.equal(evidence.text,'Written ingredients');
-    assert.equal(evidence.transcript,'加入牛肉。');
+    assert.equal(evidence.transcript,mode==='visual'||mode==='speech'&&events.filter(e=>e==='scope').length===1?undefined:'加入牛肉。');
     if(scopeCall){
       assert.equal(evidence.transcriptTranslation,undefined);
-      assert.equal(evidence.mediaAttempted,false);
+      assert.equal(evidence.mediaAttempted,events.filter(e=>e==='scope').length>1);
       assert.equal(evidence.linkedRecipes,undefined);
     } else {
-      assert.equal(evidence.transcriptTranslation,'Add the beef.');
+      assert.equal(evidence.transcriptTranslation,mode==='visual'?undefined:mode==='spanish'?'Añade la carne.':'Add the beef.');
+      if(mode==='visual')assert.ok(body.messages[1].content.some(c=>c.type==='image_url'));
       assert.equal(evidence.mediaAttempted,true);
       assert.equal(evidence.linkedRecipes.length,mode==='broken-link'?0:1);
     }
     const complete=!['research','research-failed'].includes(mode) || !!evidence.writtenResearch;
-    const result=scopeCall?{scope:mode==='non_food'?'non_food':mode==='unknown'?'unknown':'food',reason:'fixture'}:complete?recipe:{outcome:'insufficient',reason:'Missing steps'};
+    const result=scopeCall?{scope:mode==='non_food'?'non_food':mode==='unknown'||['visual','speech'].includes(mode)&&events.filter(e=>e==='scope').length===1?'unknown':'food',reason:'fixture'}:complete?recipe:{outcome:'insufficient',reason:'Missing steps'};
     return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]})};
   };
   await runImport(db,'owner','check',1);
   assert.equal(records.get(path).status,['non_food','unknown','research-failed'].includes(mode)?'skipped':'ready',mode);
-  if(mode==='unknown')assert.equal(records.get(path).failurePoint,'Food classification from metadata and original transcript');
+  if(mode==='unknown')assert.equal(records.get(path).failurePoint,'Food classification after source retrieval and research');
   if(mode==='research-failed')assert.equal(records.get(path).failurePoint,'Recipe normalization from written evidence, transcript, and translation');
   const prefix=mode==='html'?['metadata-error','html-transcript','scope']:['metadata+transcript','scope'];
-  const suffix=['non_food','unknown'].includes(mode)?[]:mode==='research'?['media','linked','extract','research','extract']:mode==='research-failed'?['media','linked','extract','research']:['media','linked','extract'];
+  const suffix=mode==='non_food'?[]:mode==='unknown'?['media','scope','research','scope']:mode==='visual'?['media','scope','linked','extract','extract']:mode==='speech'?['media','transcribe','scope','translate','linked','extract','extract']:mode==='research'?['media','translate','linked','extract','research','extract','extract']:mode==='research-failed'?['media','translate','linked','extract','research']:['media','translate','linked','extract','extract'];
   assert.deepEqual(events,[...prefix,...suffix],mode);
   const saved=records.get('users/owner/cookbook/check');
   assert.equal(!!saved,!['non_food','unknown','research-failed'].includes(mode));

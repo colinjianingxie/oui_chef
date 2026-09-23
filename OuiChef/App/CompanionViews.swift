@@ -127,13 +127,13 @@ struct CompanionPreferences: View {
                         Stepper("Household size: \(draft.householdSize)", value: $draft.householdSize, in: 1...20)
                         choice("Measurements", value: $draft.units, options: ["Metric", "US customary"])
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Chef’s spoken language").font(.subheadline.weight(.medium))
+                            Text("Recipe and chef language").font(.subheadline.weight(.medium))
                             TextField("For example, English or Mandarin", text: $draft.voiceLanguage)
                                 .textInputAutocapitalization(.words).padding(14)
                                 .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 14))
                                 .accessibilityIdentifier("voice-language")
                                 .onChange(of: draft.voiceLanguage) { _, value in draft.voiceLanguage = String(value.prefix(80)) }
-                            Text("Your chef will speak this language, whatever language the original recipe uses.").font(.caption).foregroundStyle(.secondary)
+                            Text("New recipes, transcripts, and your chef use this language, whatever language the source uses.").font(.caption).foregroundStyle(.secondary)
                         }
                         Toggle("Keep screen awake while cooking", isOn: $draft.keepAwake)
                         Toggle("Gentle cooking reminders", isOn: $draft.gentleGuidance)
@@ -503,7 +503,8 @@ struct CompanionImportView: View {
                 if let seconds = item.frameSeconds, !seconds.isEmpty { evidenceValue("Frames sampled", seconds.map { "\(Int($0.rounded()))s" }.joined(separator: ", ")) }
                 evidenceDisclosure("Ingredients captured", text: item.previewIngredients?.joined(separator: "\n"), identifier: "import-ingredients")
                 evidenceDisclosure("Original transcript\(item.transcriptLanguage.map { " · \($0)" } ?? "")", text: item.originalTranscript, identifier: "original-transcript")
-                evidenceDisclosure("English translation", text: item.translatedTranscript, identifier: "translated-transcript")
+                evidenceDisclosure("Translated transcript", text: item.translatedTranscript, identifier: "translated-transcript")
+                evidenceDisclosure("Video observations", text: item.videoObservations, identifier: "video-observations")
             }
             if item.status == "ready", let recipe = store.recipes.first(where: { $0.id == item.recipeID }) {
                 Button("Review \(recipe.title) →") { dismiss(); Task { try? await Task.sleep(for: .milliseconds(400)); store.selectedRecipe = recipe } }.font(.subheadline.weight(.medium))

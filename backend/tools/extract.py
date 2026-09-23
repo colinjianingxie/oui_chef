@@ -54,6 +54,7 @@ class Page(HTMLParser):
 
     def result(self):
         result = {'text': '\n'.join(self.parts)[:80000], 'structured': self.structured[:10],
+                'title': self.meta.get('og:title'), 'description': self.meta.get('og:description', self.meta.get('description', '')),
                 'metadata': self.meta, 'imageURL': self.meta.get('og:image'), 'links': self.links[:100]}
         details = self.video.get('videoDetails', {})
         if details:
@@ -63,7 +64,19 @@ class Page(HTMLParser):
             if images:
                 result['imageURL'] = images[-1].get('url')
         if self.youtube:
+            duration = details.get('lengthSeconds')
+            result['duration'] = float(duration) if duration and str(duration).isdigit() else None
             result['captionTracks'] = self.video.get('captions', {}).get('playerCaptionsTracklistRenderer', {}).get('captionTracks', [])
+            playback = self.video.get('playabilityStatus', {})
+            if playback.get('status') not in (None, 'OK'):
+                result['playabilityReason'] = 'YouTube playback unavailable: ' + playback.get('reason', playback['status'])[:300]
+            streams = self.video.get('streamingData', {})
+            result['formats'] = [dict(url=f['url'], protocol='https', ext='mp4' if 'mp4' in f.get('mimeType', '') else 'webm',
+                                      height=f.get('height'), width=f.get('width'),
+                                      vcodec='video' if f.get('width') else 'none',
+                                      acodec='audio' if f.get('audioQuality') else 'none')
+                                 for f in streams.get('formats', []) + streams.get('adaptiveFormats', [])
+                                 if f.get('url', '').startswith('https://')]
         return result
 
 

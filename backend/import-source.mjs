@@ -66,11 +66,11 @@ async function resolvePublic(host) {
   if (!records.length || records.some(r => !publicAddress(r.address))) throw new Error('This address is not a public source.');
   return records[0].address;
 }
-export async function safeFetch(raw, limit = 3_000_000, redirects = 0) {
+export async function safeFetch(raw, limit = 3_000_000, redirects = 0, headers = {}) {
   if (redirects > 5) throw new Error('Too many source redirects.');
   const url = new URL(normalizeURL(raw)), address = await resolvePublic(url.hostname);
   const result = await new Promise((resolve, reject) => {
-    const req = request(url, { signal: AbortSignal.timeout(45000), headers: { 'User-Agent': 'OuiChefRecipeImporter/2.0', 'Accept-Encoding': 'identity' },
+    const req = request(url, { signal: AbortSignal.timeout(45000), headers: { 'User-Agent': 'OuiChefRecipeImporter/2.0', ...headers, 'Accept-Encoding': 'identity' },
       lookup: (_host, options, cb) => options.all ? cb(null, [{ address, family: 4 }]) : cb(null, address, 4) }, res => {
       const chunks = []; let size = 0;
       res.on('data', chunk => { size += chunk.length; if (size > limit) res.destroy(new Error('Source exceeds import size limit.')); else chunks.push(chunk); });
@@ -80,9 +80,26 @@ export async function safeFetch(raw, limit = 3_000_000, redirects = 0) {
     req.setTimeout(25000, () => req.destroy(new Error('Source timed out.')));
     req.on('error', reject); req.end();
   });
-  if ([301,302,303,307,308].includes(result.status) && result.headers.location) return safeFetch(new URL(result.headers.location, url).href, limit, redirects + 1);
-  if (result.status !== 200) throw Object.assign(new Error('Source could not be read. It may require a login.'), { status: result.status });
+  if ([301,302,303,307,308].includes(result.status) && result.headers.location) return safeFetch(new URL(result.headers.location, url).href, limit, redirects + 1, headers);
+  if (result.status !== 200 && !(result.status === 206 && headers.Range)) throw Object.assign(new Error('Source could not be read. It may require a login.'), { status: result.status });
   return result;
+}
+async function downloadMedia(url, headers) {
+  // YouTube throttles whole-file requests; bounded ranges also cap memory before decoding.
+  const chunks=[], started=Date.now(); let offset=0, total;
+  do {
+    if(Date.now()-started>90000) throw new Error('Media download timed out.');
+    const response=await safeFetch(url,40_000_000,0,{...headers,Range:`bytes=${offset}-${offset+1_048_575}`});
+    if(response.status===200) return response.bytes;
+    const range=response.headers['content-range']?.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+    if(!range || Number(range[1])!==offset || Number(range[2])-offset+1!==response.bytes.length || !response.bytes.length) throw new Error('Invalid media byte range.');
+    if(total!=null && total!==Number(range[3])) throw new Error('Media changed during download.');
+    total=Number(range[3]);
+    if(total>40_000_000 || offset+response.bytes.length>40_000_000) throw new Error('Source exceeds import size limit.');
+    if(offset+response.bytes.length>total) throw new Error('Invalid media byte range.');
+    chunks.push(response.bytes);offset+=response.bytes.length;
+  } while(offset<total);
+  return Buffer.concat(chunks);
 }
 // Media extraction's every HTTPS connection also resolves/pins a public IP.
 async function mediaProxy() {
@@ -101,17 +118,19 @@ async function mediaProxy() {
       upstream.on('connect', () => { client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head.length) upstream.write(head); upstream.pipe(client); client.pipe(upstream); });
     } catch { client.end('HTTP/1.1 403 Forbidden\r\n\r\n'); }
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { url: `http://127.0.0.1:${server.address().port}`, close() { sockets.forEach(s => s.destroy()); server.close(); } };
 }
 export function retrievalError(error) {
   const detail = String(error?.stderr ?? error?.message ?? '');
+  if (/size limit/i.test(detail)) return 'The source media exceeded the download size limit.';
+  if (/CERTIFICATE_VERIFY_FAILED/i.test(detail)) return 'The source reader could not verify the server certificate.';
   if (/sign in.*(bot|confirm)|LOGIN_REQUIRED/i.test(detail)) return 'YouTube requested a sign-in check from the import server.';
   if (error?.status === 429 || /429|too many requests/i.test(detail)) return 'The source rate-limited the import server.';
-  if (error?.name === 'TimeoutError' || /timed? ?out|ETIMEDOUT/i.test(detail) || error?.killed) return 'Source retrieval timed out.';
+  if (['TimeoutError','AbortError'].includes(error?.name) || /timed? ?out|ETIMEDOUT/i.test(detail) || error?.killed) return 'Source retrieval timed out.';
   if (error?.status === 403 || /403|forbidden/i.test(detail)) return 'The source refused access to its media.';
   if (/format.*not available|no video formats/i.test(detail)) return 'Video formats were unavailable; trying the public description and captions.';
-  return 'The source extractor could not retrieve media metadata.';
+  return 'The source reader could not retrieve usable content.';
 }
 export function captionText(raw, timestamps = false) {
   if (raw.trim().startsWith('{')) {
@@ -153,15 +172,18 @@ export function captionTracks(meta) {
   return [...first, ...alternates].slice(0, 4);
 }
 export function sampleSeconds(duration) {
-  const count = Math.min(24, Math.max(4, Math.ceil(duration / 12)));
-  return Array.from({ length: count }, (_, index) => Math.round(duration * (index + 0.5) / count));
+  if (!Number.isFinite(duration) || duration <= 0) return [];
+  // ponytail: at most 24 frames; denser sampling for short, silent cooking clips.
+  const count = Math.min(24, Math.max(4, Math.ceil(duration / (duration <= 60 ? 1 : 12))));
+  return Array.from({ length: count }, (_, index) => Number((duration * (index + 0.5) / count).toFixed(2)));
 }
-export function mediaFormat(formats, hasTranscript) {
-  const available = (formats ?? []).filter(format => format.url?.startsWith('https:') && format.protocol === 'https');
-  const videos = available.filter(format => format.vcodec !== 'none' && (!format.height || format.height <= 480)).sort((a,b) => Number(b.ext === 'mp4') - Number(a.ext === 'mp4') || (b.height ?? 0) - (a.height ?? 0));
-  const combined = videos.find(format => format.acodec !== 'none');
-  const audio = available.find(format => format.vcodec === 'none' && format.acodec !== 'none');
-  return hasTranscript ? videos[0] ?? audio : combined ?? audio;
+export function mediaFormat(formats, kind) {
+  const available = (formats ?? []).filter(format => format.url?.startsWith('https:') && ['https','m3u8_native'].includes(format.protocol));
+  if (kind === 'audio') return available.filter(f => f.acodec !== 'none' && (f.acodec || f.vcodec === 'none')).sort((a,b) => Number(b.vcodec === 'none') - Number(a.vcodec === 'none') || (a.abr ?? 0) - (b.abr ?? 0))[0];
+  return available.filter(f => f.vcodec && f.vcodec !== 'none').sort((a,b) => {
+    const size = f => Math.min(f.width ?? Infinity, f.height ?? Infinity);
+    return Number(size(a) > 480) - Number(size(b) > 480) || Number(a.protocol !== 'https') - Number(b.protocol !== 'https') || Number(b.ext === 'mp4') - Number(a.ext === 'mp4') || Math.abs(size(a) - 360) - Math.abs(size(b) - 360);
+  })[0];
 }
 export async function readCaptions(tracks, result, fetchSource = safeFetch, includeTranslation = true) {
   let found = false;
@@ -185,7 +207,20 @@ export async function readCaptions(tracks, result, fetchSource = safeFetch, incl
   }
   if (!found) result.retrievalErrors.push(tracks.length ? 'Caption tracks were listed, but returned no readable captions.' : 'No caption tracks were exposed by the source.');
 }
-export async function readPage(url, { captions = false, translatedCaptions = true, onMetadata = async () => {} } = {}) {
+async function readImages(result, directory) {
+  // ponytail: up to six public post images; larger carousels need a separate image budget.
+  for (const [index,url] of [...new Set(result.imageURLs?.length ? result.imageURLs : [result.imageURL].filter(Boolean))].slice(0,6).entries()) {
+    try {
+      const image=await safeFetch(new URL(url,result.url).href,2_000_000);
+      if(!/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')) continue;
+      const file=join(directory,`image-${index}`),jpeg=file+'.jpg';
+      await writeFile(file,image.bytes);
+      await exec('ffmpeg',['-v','error','-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=1024:1024:force_original_aspect_ratio=decrease',jpeg],{timeout:15000,env:toolEnvironment});
+      result.images.push({second:null,url,data:(await readFile(jpeg)).toString('base64')});
+    } catch {result.retrievalErrors.push('A public source image could not be read.');}
+  }
+}
+export async function readPage(url, { captions = false, translatedCaptions = true, withMedia = false, onMetadata = async () => {} } = {}) {
   const page = await safeFetch(url);
   if (!/text\/|json|xml/.test(page.headers['content-type'] ?? 'text/html')) throw new Error('Share a recipe page or video post.');
   const directory = await mkdtemp(join(tmpdir(), 'oui-page-'));
@@ -193,30 +228,43 @@ export async function readPage(url, { captions = false, translatedCaptions = tru
     const file = join(directory, 'page.html'); await writeFile(file, page.bytes);
     const youtube = sourceName(url) === 'YouTube';
     const { stdout } = await exec('python3', [fileURLToPath(new URL('./tools/extract.py', import.meta.url)), file, ...(youtube ? ['--youtube'] : [])], { timeout: 15000, maxBuffer: 500000, env: toolEnvironment });
-    const result = { ...JSON.parse(stdout), url: page.url, hasTranscript: false, retrievalErrors: [] };
+    const result = { ...JSON.parse(stdout), url: page.url, images: [], hasTranscript: false, retrievalErrors: [] };
     await onMetadata(result);
     if (youtube && captions) {
       await readCaptions(captionTracks(result), result, safeFetch, translatedCaptions);
     }
     delete result.captionTracks;
+    if(withMedia) await readImages(result,directory);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
-export async function readSocial(url, { withMedia = false, captions = false, translatedCaptions = true, onMetadata = async () => {} } = {}) {
-  if (sourceName(url) === 'Website') return { text: '', images: [] };
+export async function readSocial(url, { withMedia = false, captions = false, translatedCaptions = true, previous, onMetadata = async () => {} } = {}) {
   const proxy = await mediaProxy(), directory = await mkdtemp(join(tmpdir(), 'oui-media-'));
   try {
-    const { stdout } = await exec('python3', ['-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--js-runtimes', 'node', '--no-cache-dir', '--proxy', proxy.url, '--skip-download', '--ignore-no-formats-error', '--dump-single-json', '--no-playlist', '--no-warnings', '--socket-timeout', '15', '--retries', '0', '--', normalizeURL(url)], { timeout: 55000, maxBuffer: 5_000_000, env: toolEnvironment });
-    const meta = JSON.parse(stdout);
-    const result = { title: meta.title ?? null, creator: meta.uploader ?? null, description: meta.description ?? '', text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, images: [], duration: meta.duration,
-      extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
+    let result;
+    if (previous?.formats?.length) result = { ...previous, images: [], retrievalErrors: [] };
+    else {
+      const { stdout, stderr } = await exec('python3', ['-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--js-runtimes', 'node', '--no-cache-dir', '--proxy', proxy.url, '--skip-download', '--ignore-no-formats-error', '--dump-single-json', '--no-playlist', '--socket-timeout', '15', '--retries', '0', '--', normalizeURL(url)], { timeout: 55000, maxBuffer: 5_000_000, env: toolEnvironment });
+      const meta = JSON.parse(stdout);
+      result = { url:normalizeURL(url), title: meta.title ?? null, creator: meta.uploader ?? null, description: meta.description ?? '', text: `${meta.title ?? ''}\nCreator: ${meta.uploader ?? ''}\n${meta.description ?? ''}`, imageURL: meta.thumbnail, imageURLs:sourceName(url)==='RedNote'?(meta.thumbnails??[]).map(image=>image.url):[], images: [], duration: meta.duration,
+        formats: meta.formats ?? [], httpHeaders: meta.http_headers ?? {}, tracks: captionTracks(meta),
+        extractor: meta.extractor_key ?? meta.extractor ?? sourceName(url), hasTranscript: false, retrievalErrors: [] };
+      if (/sign in|429|403|timed? out|no video formats/i.test(stderr)) result.retrievalErrors.push(retrievalError({stderr}));
+    }
     await onMetadata(result);
-    if (captions || withMedia) {
-      await readCaptions(captionTracks(meta), result, safeFetch, translatedCaptions);
-      if (!result.hasTranscript && sourceName(url) === 'YouTube') {
+    if ((captions || withMedia) && !result.hasTranscript) {
+      await readCaptions(result.tracks ?? [], result, safeFetch, translatedCaptions);
+      if ((!result.hasTranscript || !result.duration || !result.formats.length) && sourceName(url) === 'YouTube') {
         try {
           const page = await readPage(url, { captions: true, translatedCaptions });
           result.retrievalErrors.push(...page.retrievalErrors);
+          result.title ||= page.title;
+          result.creator ||= page.creator;
+          if (!result.description && page.description) { result.description = page.description; result.text += '\n' + page.description; }
+          result.imageURL ||= page.imageURL;
+          result.duration ??= page.duration;
+          if (!result.formats.length) result.formats = page.formats ?? [];
+          if (page.playabilityReason) result.retrievalErrors.push(page.playabilityReason);
           if (page.hasTranscript) {
             result.transcript = page.transcript; result.transcriptLanguage = page.transcriptLanguage;
             result.transcriptTranslation = page.transcriptTranslation; result.transcriptTranslationLanguage = page.transcriptTranslationLanguage;
@@ -225,27 +273,42 @@ export async function readSocial(url, { withMedia = false, captions = false, tra
         } catch { result.retrievalErrors.push('The public video captions could not be read.'); }
       }
     }
-    // Media is requested only after the source is classified as food. Sample frames even when captions exist.
-    if (withMedia && Number.isFinite(meta.duration) && meta.duration > 0 && meta.duration <= 1200) {
-      try {
-        const format = mediaFormat(meta.formats, result.hasTranscript);
-        if (format) {
-          const media = await safeFetch(format.url, 40_000_000); const file = join(directory, 'media'); await writeFile(file, media.bytes);
-          if (!result.hasTranscript) {
+    if (withMedia) {
+      if (result.duration > 1200) result.retrievalErrors.push('Video inspection supports sources up to 20 minutes.');
+      else for (const kind of ['video', ...(!result.hasTranscript ? ['audio'] : [])]) {
+        const format = mediaFormat(result.formats, kind);
+        if (!format) { result.retrievalErrors.push(`No downloadable ${kind} stream was exposed by the source.`); continue; }
+        try {
+          const headers = {};
+          for (const [key, value] of Object.entries({...result.httpHeaders, ...format.http_headers})) {
+            if (/^(user-agent|referer)$/i.test(key) && typeof value === 'string' && value.length < 4000 && !/[\r\n]/.test(value)) headers[key] = value;
+          }
+          const file = join(directory, kind);
+          if(format.protocol==='m3u8_native') {
+            const info=join(directory,'stream.json');
+            await writeFile(info,JSON.stringify({url:format.url,protocol:format.protocol,ext:format.ext,http_headers:headers}));
+            await exec('python3',[fileURLToPath(new URL('./tools/download.py',import.meta.url)),info,file,proxy.url],{timeout:90000,maxBuffer:500000,env:toolEnvironment});
+          } else await writeFile(file, await downloadMedia(format.url, headers));
+          const {stdout} = await exec('ffprobe', ['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration','-of','json',file], {timeout:15000,env:toolEnvironment});
+          const duration = Number(JSON.parse(stdout).format?.duration) || result.duration;
+          if (!(duration > 0 && duration <= 1200)) throw new Error('Media duration is unavailable or exceeds 20 minutes.');
+          result.duration = duration;
+          if (kind === 'audio') {
             const audio = join(directory, 'audio.mp3');
             await exec('ffmpeg', ['-v','error','-protocol_whitelist','file,pipe','-i',file,'-vn','-ac','1','-ar','16000','-t','1200',audio], { timeout: 45000, env: toolEnvironment });
             result.audio = await readFile(audio);
-          }
-          if (format.vcodec !== 'none') {
-            for (const second of sampleSeconds(meta.duration)) {
+          } else {
+            for (const second of sampleSeconds(duration)) {
               const frame = join(directory, `frame-${second}.jpg`);
-              await exec('ffmpeg', ['-v','error','-ss',String(second),'-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=640:-1',frame], { timeout: 15000, env: toolEnvironment });
+              await exec('ffmpeg', ['-v','error','-ss',String(second),'-protocol_whitelist','file,pipe','-i',file,'-frames:v','1','-vf','scale=640:640:force_original_aspect_ratio=decrease',frame], { timeout: 15000, env: toolEnvironment });
               result.images.push({ second, data: (await readFile(frame)).toString('base64') });
             }
           }
-        } else { result.retrievalErrors.push('This platform did not expose a downloadable media file.'); }
-      } catch(error) { result.retrievalErrors.push(retrievalError(error)); }
+        } catch(error) { result.retrievalErrors.push(`${kind === 'video' ? 'Video inspection' : 'Audio retrieval'}: ${/duration/.test(error.message) ? error.message : retrievalError(error)}`); }
+      }
     }
+    if(withMedia && !result.images.length) await readImages(result,directory);
+    result.retrievalErrors = [...new Set(result.retrievalErrors)];
     return result;
   } finally { proxy.close(); await rm(directory, { recursive: true, force: true }); }
 }

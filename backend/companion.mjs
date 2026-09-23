@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { importInput, readPage, readSocial, safeFetch, retrievalError, descriptionLinks } from './import-source.mjs';
-import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, answerQuestion, validateRecipe } from './recipe-agent.mjs';
+import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, inspectYouTube, answerQuestion, validateRecipe } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
@@ -43,6 +43,7 @@ export async function runImport(db,uid,id,attempt) {
   try {
     const profileDoc=await db.doc(`users/${uid}/settings/cooking`).get();
     const profile=JSON.parse(profileDoc.data()?.payload??'{}');
+    const targetLanguage=typeof profile.voiceLanguage==='string' && profile.voiceLanguage.trim() ? profile.voiceLanguage.trim().slice(0,80) : 'English';
     let evidence={url:claimed.url,text:'',images:[],mediaAttempted:false}, retrievalErrors=[];
     let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
     const metadata = async source => progress('fetching','Found the source. Reading its metadata and transcript…',0,{
@@ -80,39 +81,78 @@ export async function runImport(db,uid,id,attempt) {
     });
     let scope=await classifySource(db,uid,id,evidence), result;
     await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
-    if(scope.scope==='unknown') await ref.update({failurePoint:'Food classification from metadata and original transcript',extractionReason:scope.reason?.slice(0,1000)||null});
-    if(scope.scope==='food' && claimed.url && claimed.source!=='Website') {
-      await progress('transcribing','Translating the transcript and inspecting video frames…',2);
+    const collectMedia=async()=>{
+      await progress('transcribing','Reading speech and inspecting video frames…',2);
       evidence.mediaAttempted=true;
       let media;
-      try {media=await readSocial(claimed.url,{captions:true,withMedia:true});}
+      try {media=await readSocial(claimed.url,{captions:true,translatedCaptions:false,withMedia:true,previous:evidence});}
       catch(error) {
         retrievalErrors.push(retrievalError(error));
-        try {media=await readPage(claimed.url,{captions:true});}
+        try {media=await readPage(claimed.url,{captions:true,translatedCaptions:false,withMedia:true});}
         catch {retrievalErrors.push('The public video captions could not be read.');}
       }
       if(media) {
         retrievalErrors.push(...media.retrievalErrors);
         evidence.transcript=media.transcript||evidence.transcript||'';
         evidence.transcriptLanguage=media.transcriptLanguage??evidence.transcriptLanguage??null;
-        evidence.transcriptTranslation=media.transcriptTranslation||evidence.transcriptTranslation||'';
+        evidence.duration=media.duration??evidence.duration;
         evidence.images=media.images??[];
         if(media.audio) {
           try {
             const speech=await transcribe(db,uid,id,media.audio);
-            evidence.transcript+='\n'+speech.text; evidence.transcriptLanguage??=speech.language;
+            evidence.transcript=[evidence.transcript,speech.text].filter(Boolean).join('\n'); evidence.transcriptLanguage??=speech.language;
+            retrieval.audioTranscribed=!!speech.text.trim();
           }
           catch {retrievalErrors.push('Audio transcription was unavailable.');}
         }
       }
-      if(evidence.transcript && !evidence.transcriptTranslation && !/^en(?:-|$)/i.test(evidence.transcriptLanguage??'')) {
-        try {evidence.transcriptTranslation=await translateTranscript(db,uid,id,evidence.transcript,evidence.transcriptLanguage);}
+      retrieval.hasTranscript=!!evidence.transcript;
+      retrieval.transcriptLanguage=evidence.transcriptLanguage??null;
+      retrieval.frameCount=evidence.images.filter(image=>Number.isFinite(image.second)).length;
+      retrieval.imageCount=evidence.images.length-retrieval.frameCount;
+      if(claimed.source==='YouTube' && process.env.YOUTUBE_VIDEO_MODEL && (!evidence.transcript || !retrieval.frameCount)) {
+        try {
+          await progress('transcribing','Reading the public video with the native video reader…',2);
+          const video=await inspectYouTube(db,uid,id,claimed.url);
+          evidence.transcript ||= video.transcript;
+          evidence.transcriptLanguage ??= video.transcriptLanguage;
+          evidence.videoObservations=video.videoObservations;
+          evidence.duration ??= video.duration;
+          retrieval.videoReader='google';retrieval.videoRunID=video.runID;
+          retrieval.hasTranscript=!!evidence.transcript;retrieval.transcriptLanguage=evidence.transcriptLanguage??null;
+        } catch {retrievalErrors.push('Native public-video inspection was unavailable.');}
+      }
+    };
+    const translate=async()=>{
+      const alreadyEnglish=/^en(?:-|$)/i.test(evidence.transcriptLanguage??'') && /^(English|en(?:-|$))/i.test(targetLanguage);
+      if(evidence.transcript && !evidence.transcriptTranslation && !alreadyEnglish) {
+        try {evidence.transcriptTranslation=await translateTranscript(db,uid,id,evidence.transcript,evidence.transcriptLanguage,targetLanguage);}
         catch {retrievalErrors.push('Transcript translation was unavailable.');}
       }
-      retrieval.hasTranscript=!!evidence.transcript;
-      retrieval.transcriptLanguage=evidence.transcriptLanguage;
+    };
+    const research=async()=>{
+      try {evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result?.recipe.reason??scope.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);}
+      catch {retrievalErrors.push('The original written recipe search was unavailable.');}
+    };
+    const evidenceProgress=()=>progress('transcribing','Source evidence is ready.',2,{
+      originalTranscript:evidence.transcript?.slice(0,80000)||null,transcriptLanguage:evidence.transcriptLanguage??null,
+      translatedTranscript:evidence.transcriptTranslation?.slice(0,80000)||null,translationLanguage:targetLanguage,
+      videoObservations:evidence.videoObservations?.slice(0,80000)||null,
+      sourceDurationSeconds:Number.isFinite(evidence.duration)?evidence.duration:null,
+      frameSeconds:evidence.images.map(frame=>frame.second).filter(Number.isFinite),retrieval,retrievalErrors:[...new Set(retrievalErrors)]
+    });
+    if(scope.scope!=='non_food' && claimed.url && (claimed.source!=='Website' || scope.scope==='unknown')) {
+      await collectMedia();
+      if(scope.scope==='unknown' && (evidence.transcript || evidence.images.length || evidence.videoObservations)) scope=await classifySource(db,uid,id,evidence);
     }
+    if(scope.scope==='unknown' && claimed.url) {
+      await research();
+      if(evidence.writtenResearch) scope=await classifySource(db,uid,id,evidence);
+    }
+    await ref.update({scope:scope.scope,scopeReason:scope.reason,scopeRunID:scope.runID});
+    if(scope.scope==='unknown') await ref.update({failurePoint:'Food classification after source retrieval and research',extractionReason:scope.reason?.slice(0,1000)||null});
     if(scope.scope==='food') {
+      await translate();
       evidence.linkedRecipes=[];
       for(const url of descriptionLinks(evidence.description)) {
         try {
@@ -120,26 +160,28 @@ export async function runImport(db,uid,id,attempt) {
           evidence.linkedRecipes.push({url:page.url,title:page.title,text:page.text.slice(0,20000),structured:page.structured});
         } catch {retrievalErrors.push('A description link could not be read.');}
       }
-      await progress('transcribing','Source evidence is ready.',2,{
-        originalTranscript:evidence.transcript?.slice(0,80000)||null,
-        transcriptLanguage:evidence.transcriptLanguage??null,
-        translatedTranscript:evidence.transcriptTranslation?.slice(0,80000)||null,
-        frameSeconds:evidence.images.map(frame=>frame.second),retrieval,retrievalErrors
-      });
+      await evidenceProgress();
       await progress('extracting','Building the ingredients and cooking steps…',3);
       result=await extractRecipe(db,uid,id,evidence,profile);
-      await ref.update(extractionPreview(result.recipe,evidence.images.length?'Recipe normalization from written evidence, transcript, translation, and sampled video frames':evidence.transcriptTranslation?'Recipe normalization from written evidence, transcript, and translation':evidence.transcript?'Recipe normalization from written evidence and original transcript':'Recipe normalization from written evidence'));
+      await ref.update(extractionPreview(result.recipe,evidence.videoObservations?'Recipe normalization from native video evidence and original speech':evidence.images.length?'Recipe normalization from written evidence, transcript, translation, and source images':evidence.transcriptTranslation?'Recipe normalization from written evidence, transcript, and translation':evidence.transcript?'Recipe normalization from written evidence and original transcript':'Recipe normalization from written evidence'));
+      if(result.recipe.outcome==='insufficient' && claimed.url && !evidence.mediaAttempted) {
+        await collectMedia();
+        await translate();
+        await evidenceProgress();
+        await progress('extracting','Building the recipe from the page and its video…',3);
+        result=await extractRecipe(db,uid,id,evidence,profile);
+        await ref.update(extractionPreview(result.recipe,'Recipe normalization after page video inspection'));
+      }
       if(result.recipe.outcome==='insufficient' && claimed.url) {
-        await progress('extracting','Looking for the creator’s original written recipe…',3,{extractionReason:result.recipe.reason});
-        try {
-          evidence.writtenResearch=await researchSource(db,uid,id,claimed.url,`${result.recipe.reason}\nSource title: ${evidence.title??''}\nCreator: ${evidence.creator??''}\nDescription links: ${descriptionLinks(evidence.description).join(' ')}`);
-        } catch {retrievalErrors.push('The original written recipe search was unavailable.');}
+        await progress('extracting','Searching for recipe evidence matching this source…',3,{extractionReason:result.recipe.reason});
+        if(!evidence.writtenResearch) await research();
         if(evidence.writtenResearch) {
           result=await extractRecipe(db,uid,id,evidence,profile);
           await ref.update(extractionPreview(result.recipe,'Recipe normalization after original-recipe research'));
         }
       }
     }
+    retrievalErrors=[...new Set(retrievalErrors)];
     await ref.update({retrieval,retrievalErrors});
     if(scope.scope!=='food') {
       await progress('skipped',scope.scope==='non_food'?'Oui Chef only imports food and drink recipes. This source is outside cooking.':`We could not read enough of this source to identify a recipe. ${retrievalErrors[0]??''} Try pasting the ingredients and cooking steps.`);
@@ -156,7 +198,7 @@ export async function runImport(db,uid,id,attempt) {
     });
     const {outcome,reason,...content}=result.recipe;
     let imagePath=null;
-    if(evidence.imageURL){try {const image=await safeFetch(new URL(evidence.imageURL,claimed.url).href,2_000_000);if(/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')){imagePath=`users/${uid}/recipeMedia/${id}/cover-${attempt}`;await getStorage().bucket().file(imagePath).save(image.bytes,{metadata:{contentType:image.headers['content-type']}});}}catch{/* The recipe remains usable without artwork. */}}
+    if(evidence.imageURL){try {const image=await safeFetch(new URL(evidence.imageURL,claimed.url).href,2_000_000);if(/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')){const path=`users/${uid}/recipeMedia/${id}/cover-${attempt}`;await getStorage().bucket().file(path).save(image.bytes,{metadata:{contentType:image.headers['content-type']}});imagePath=path;}}catch{/* The recipe remains usable without artwork. */}}
     const recipe={...content,imagePath,id,sourceURL:claimed.url,sourceName:claimed.source,imageURL:typeof evidence.imageURL==='string'&&evidence.imageURL.startsWith('https://')?evidence.imageURL:null,modelRunID:result.runID,favorite:false,reviewed:false,createdAt:Date.now(),version:1};
     validateRecipe(recipe);
     const payload=JSON.stringify(recipe);

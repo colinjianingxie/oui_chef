@@ -1,0 +1,5 @@
+title: Oui Chef public video reader
+description: Invoke video understanding for public recipe imports.
+stage: GA
+includedPermissions:
+  - aiplatform.endpoints.predict

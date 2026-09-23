@@ -57,6 +57,7 @@ final class CompanionTests: XCTestCase {
         item.sourceTitle = "Chinese beef stew"; item.recipeTitle = "Red-braised beef"
         item.originalTranscript = "[88.51s] 冷水下锅。"; item.transcriptLanguage = "zh-CN"
         item.translatedTranscript = "[88.51s] Put it in cold water."; item.frameSeconds = [10, 30]
+        item.videoObservations = "[10s] Beef is cut into cubes."
         item.failurePoint = "Written source"
         let saved = try CompanionJSON.decode(RecipeImport.self, CompanionJSON.encode(item))
         XCTAssertEqual(saved.progressStage, 4)
@@ -65,6 +66,7 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(saved.originalTranscript, "[88.51s] 冷水下锅。")
         XCTAssertEqual(saved.translatedTranscript, "[88.51s] Put it in cold water.")
         XCTAssertEqual(saved.frameSeconds, [10, 30])
+        XCTAssertEqual(saved.videoObservations, "[10s] Beef is cut into cubes.")
         XCTAssertTrue(saved.hasImportEvidence)
         item.status = "skipped"
         XCTAssertFalse(item.running)
