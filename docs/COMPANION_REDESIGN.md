@@ -44,6 +44,8 @@ Firebase Authentication provides identity. Firestore paths are:
 - `aiQuestionLimits/{uid}`: daily question quota.
 - `deletedAccounts/{uid}`: prevents in-flight work from recreating deleted account data.
 
+New imports no longer write `cookbook/{id}/versions/1`. An older version document remains for the reported sourdough recipe because it records the original, pre-review payload and has not been migrated into the shared cache.
+
 Storage uses private `users/{uid}/cooks/{attemptID}/dish.jpg` and `users/{uid}/recipeMedia/{recipeID}/cover-{attempt}` objects. Ingredient question photos are sent for that question and are not added to the album. Source audio/video and sampled frames are temporary worker files, removed after processing.
 
 The client keeps an atomic, account-specific local archive and a sync outbox. The server accepts session snapshots only against the expected revision. If another device has changed the same cook, the local continuation becomes a separate attempt, preserving both histories. No provider-specific objects are embedded in the recipe/session contract. A future OpenAI change should replace the request/voice adapters and rerun behavior checks; there is no speculative second provider implementation.

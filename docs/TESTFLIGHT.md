@@ -1,5 +1,13 @@
 # TestFlight
 
+## September 23, 2026 — shared imports and Debug mode, build 14
+
+Oui Chef AI **1.0 (14)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **02:49:33 UTC on September 24**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; App Store Connect is processing the package. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit `8f6ab81` was pushed to `main`. The app adds a default-on Debug mode setting that reveals import metadata, retrieved text, original-language transcripts, video observations, and retrieval errors. The matching backend image `sha256:a33a3a7f8028a4f5b51e20f7af4d587dddf841157c717b2fd38eb2dc292b97b4` is deployed as `oui-chef-voice-00020-qlk` at 100% traffic. It gives free accounts one successful import per UTC day, recognizes the Firebase `admin` custom claim for unlimited imports, reuses successful public URL recipes for matching preferences, and allows a longer native YouTube inspection. The exact reported 15-minute video returned original `zh-CN` speech and visual observations in 158 seconds with the longer timeout.
+
+The signed archive, app dSYM, and Share Extension dSYM are at `/Users/xie/Library/Developer/Xcode/Archives/2026-09-23/OuiChef-1.0-14-20260923.xcarchive`. The device build and archive passed; 31 Swift core and 27 runnable backend tests passed. After deployment, health returned 200, unauthenticated import 401, and unsigned worker 403. Firestore index exemptions deployed. The obsolete global import budget and its reservation field on the reported import were removed; the old recipe version was retained because it is a distinct original snapshot. The existing missing-dSYM warnings for five prebuilt Firebase/gRPC dependencies remained, but upload succeeded. No tester assignments or review submissions were changed.
+
 ## September 22, 2026 — direct cooking from imports, build 13
 
 Oui Chef AI **1.0 (13)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **02:42:50 UTC on September 23**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
