@@ -26,7 +26,7 @@ Original videos remain at their attributed source. YouTube technique links seek 
 - Up to 20 active timers per cooking attempt. Timer deadlines survive restart; notification delivery depends on iOS notification permissions and system settings.
 - The cookbook loads the latest 200 records in each collection. Pagination is needed before exceeding that beta limit.
 - Components are named ingredient/step groups in a single ordered recipe; their steps can be visited independently and their timers overlap. There is no general dependency-graph scheduler.
-- Import allowance defaults to 1,500 reserved cents globally, reserving 100 cents per attempt. These are conservative quotas, not claims about actual billing. Raise/reset deliberately for further testing. Questions default to 60 per account per UTC day. The existing voice budget and 10-minute connection cap remain.
+- Free accounts can save one imported recipe per UTC day; a failed or skipped import releases its reservation. A verified Firebase ID token with the `admin` custom claim bypasses this daily import limit. Questions default to 60 per account per UTC day. The existing voice budget and 10-minute connection cap remain.
 - No silent learned changes to dietary or allergy settings. Prior attempts are supplied as context; users explicitly save preferences and modifications.
 
 ## Data and model records
@@ -34,13 +34,14 @@ Original videos remain at their attributed source. YouTube technique links seek 
 Firebase Authentication provides identity. Firestore paths are:
 
 - `users/{uid}/settings/cooking`: preferences.
-- `users/{uid}/imports/{id}`: asynchronous import state and source receipt.
+- `users/{uid}/imports/{id}`: asynchronous import state and source evidence for the default-on Debug view.
 - `users/{uid}/cookbook/{id}`: normalized recipe JSON and metadata.
-- `users/{uid}/cookbook/{id}/versions/1`: the initial normalized result.
 - `users/{uid}/cooks/{id}`: recipe snapshot and cooking history, with a server revision.
+- `sharedRecipes/{sourceAndProfileHash}`: server-owned successful URL parse, reused by other accounts with the same recipe preferences. User-supplied text is never shared.
+- `importLimits/{uid}`: free-account daily count and in-flight reservation.
 - `aiRuns/{id}`: provider, requested and returned model, task, user/import/session IDs, prompt/schema versions, request ID, token usage, status and latency. Raw source text and ingredient photos are not logged here.
 - `voiceSessions/{id}` and the existing voice ledger retain metering and model metadata.
-- `aiBudget/imports`, `aiQuestionLimits/{uid}`: beta quotas.
+- `aiQuestionLimits/{uid}`: daily question quota.
 - `deletedAccounts/{uid}`: prevents in-flight work from recreating deleted account data.
 
 Storage uses private `users/{uid}/cooks/{attemptID}/dish.jpg` and `users/{uid}/recipeMedia/{recipeID}/cover-{attempt}` objects. Ingredient question photos are sent for that question and are not added to the album. Source audio/video and sampled frames are temporary worker files, removed after processing.

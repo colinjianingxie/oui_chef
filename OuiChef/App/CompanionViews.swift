@@ -75,6 +75,7 @@ private struct CompanionWelcome: View {
 
 struct CompanionPreferences: View {
     let store: CompanionStore
+    @AppStorage("recipeImportDebug") private var recipeImportDebug = true
     var onboarding = false
     @State private var draft = CookProfile()
     @State private var page = 0
@@ -140,6 +141,10 @@ struct CompanionPreferences: View {
                         DisclosureGroup("Equipment · optional") {
                             selectionRow(.equipment).padding(.top, 15)
                         }.font(.subheadline)
+                    }
+                    if !onboarding {
+                        Toggle("Debug mode", isOn: $recipeImportDebug).accessibilityIdentifier("recipe-import-debug")
+                        Text("Show source metadata, raw transcripts, retrieved text, and import details.").font(.caption).foregroundStyle(.secondary)
                     }
                 }.padding(26)
             }.background(Theme.cream).foregroundStyle(Theme.ink)
@@ -399,6 +404,7 @@ private struct ImportRecipePreview: View {
 
 struct CompanionImportView: View {
     @Bindable var store: CompanionStore
+    @AppStorage("recipeImportDebug") private var recipeImportDebug = true
     @State private var url = ""
     @State private var recipeText = ""
     @State private var textMode = false
@@ -432,6 +438,7 @@ struct CompanionImportView: View {
                                 }.buttonStyle(FilledButton()).accessibilityIdentifier("start-imported-recipe")
                                 Text("Saved to your cookbook.").font(.caption).foregroundStyle(.secondary)
                             } else { ProgressView("Opening your recipe…") }
+                            if recipeImportDebug { importRow(item) }
                         } else {
                             Text(item.running ? "Your recipe is\ncoming together." : "Let’s try that again.").font(Theme.serif(37))
                             importRow(item)
@@ -517,21 +524,27 @@ struct CompanionImportView: View {
                 }
             }
             Text(item.message).font(.subheadline).foregroundStyle(.secondary)
-            if item.hasImportEvidence {
+            if recipeImportDebug && item.hasImportEvidence {
                 Divider()
-                Text("Import evidence").font(.headline)
+                Text("Import debug details").font(.headline)
+                if item.cacheHit == true { evidenceValue("Result", "Reused a previously parsed shared recipe.") }
                 evidenceValue("Source title", item.sourceTitle)
                 evidenceValue("Recipe title", item.recipeTitle)
                 evidenceValue("Creator", item.previewCreator)
                 evidenceValue("Source reader", item.sourceExtractor)
+                evidenceValue("Retrieval", item.retrieval)
                 if let duration = item.sourceDurationSeconds { evidenceValue("Video duration", "\(Int(duration.rounded())) seconds") }
+                evidenceValue("Food classification", item.scopeReason)
                 if let point = item.failurePoint { evidenceValue("Last incomplete stage", point) }
                 if let reason = item.extractionReason { evidenceValue("Parser result", reason) }
                 if let seconds = item.frameSeconds, !seconds.isEmpty { evidenceValue("Frames sampled", seconds.map { "\(Int($0.rounded()))s" }.joined(separator: ", ")) }
+                evidenceDisclosure("Retrieved source text", text: item.sourceText, identifier: "source-text")
                 evidenceDisclosure("Ingredients captured", text: item.previewIngredients?.joined(separator: "\n"), identifier: "import-ingredients")
+                evidenceDisclosure("Steps captured", text: item.previewSteps?.joined(separator: "\n"), identifier: "import-steps")
                 evidenceDisclosure("Original transcript\(item.transcriptLanguage.map { " · \($0)" } ?? "")", text: item.originalTranscript, identifier: "original-transcript")
                 evidenceDisclosure("Translated transcript", text: item.translatedTranscript, identifier: "translated-transcript")
                 evidenceDisclosure("Video observations", text: item.videoObservations, identifier: "video-observations")
+                evidenceDisclosure("Retrieval errors", text: item.retrievalErrors?.joined(separator: "\n"), identifier: "retrieval-errors")
             }
             if item.running {
                 HStack { Text("You can leave. We’ll keep working.").font(.caption); Spacer(); Button("Cancel") { Task { await store.cancelImport(item.id) } }.font(.caption) }

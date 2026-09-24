@@ -6,6 +6,14 @@ import { classifySource, extractRecipe, transcribe, translateTranscript, researc
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
+const importDay = () => new Date().toISOString().slice(0,10);
+const sharedRecipeID = (url,text,profile) => url && !text ? createHash('sha256').update(`companion-9\0${url}\0${profile}`).digest('hex') : null;
+const activeImport = (limit,id,attempt) => limit?.activeID===id && limit?.activeAttempt===attempt;
+const importDebug = data => Object.fromEntries(['sourceTitle','previewCreator','sourceDurationSeconds','sourceExtractor','sourceText','originalTranscript','transcriptLanguage','translatedTranscript','translationLanguage','videoObservations','frameSeconds','retrieval','retrievalErrors','scope','scopeReason','recipeTitle','previewSummary','previewIngredients','previewSteps','extractionReason','failurePoint'].filter(key=>data[key]!==undefined).map(key=>[key,data[key]]));
+async function releaseImport(db,uid,id,attempt) {
+  const ref=db.doc(`importLimits/${uid}`);
+  await db.runTransaction(async tx=>{const doc=await tx.get(ref);if(activeImport(doc.data(),id,attempt))tx.set(ref,{day:doc.data().day,count:doc.data().count});});
+}
 const send=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
 const extractionPreview=(recipe,failurePoint) => ({
   recipeTitle:recipe.title?.trim()?.slice(0,500)||null,
@@ -42,7 +50,7 @@ export async function runImport(db,uid,id,attempt) {
   };
   try {
     const profileDoc=await db.doc(`users/${uid}/settings/cooking`).get();
-    const profile=JSON.parse(profileDoc.data()?.payload??'{}');
+    const profilePayload=profileDoc.data()?.payload??'{}',profile=JSON.parse(profilePayload);
     const targetLanguage=typeof profile.voiceLanguage==='string' && profile.voiceLanguage.trim() ? profile.voiceLanguage.trim().slice(0,80) : 'English';
     let evidence={url:claimed.url,text:'',images:[],mediaAttempted:false}, retrievalErrors=[];
     let retrieval={source:claimed.source,method:claimed.url?'html':'pasted_text',hasTranscript:false};
@@ -120,7 +128,7 @@ export async function runImport(db,uid,id,attempt) {
           evidence.duration ??= video.duration;
           retrieval.videoReader='google';retrieval.videoRunID=video.runID;
           retrieval.hasTranscript=!!evidence.transcript;retrieval.transcriptLanguage=evidence.transcriptLanguage??null;
-        } catch {retrievalErrors.push('Native public-video inspection was unavailable.');}
+        } catch(error) {retrievalErrors.push(error.name==='TimeoutError'?'Native public-video inspection timed out.':'Native public-video inspection was unavailable.');}
       }
     };
     const translate=async()=>{
@@ -135,6 +143,7 @@ export async function runImport(db,uid,id,attempt) {
       catch {retrievalErrors.push('The original written recipe search was unavailable.');}
     };
     const evidenceProgress=()=>progress('transcribing','Source evidence is ready.',2,{
+      sourceText:evidence.text?.slice(0,20000)||null,
       originalTranscript:evidence.transcript?.slice(0,80000)||null,transcriptLanguage:evidence.transcriptLanguage??null,
       translatedTranscript:evidence.transcriptTranslation?.slice(0,80000)||null,translationLanguage:targetLanguage,
       videoObservations:evidence.videoObservations?.slice(0,80000)||null,
@@ -185,11 +194,11 @@ export async function runImport(db,uid,id,attempt) {
     await ref.update({retrieval,retrievalErrors});
     if(scope.scope!=='food') {
       await progress('skipped',scope.scope==='non_food'?'Oui Chef only imports food and drink recipes. This source is outside cooking.':`We could not read enough of this source to identify a recipe. ${retrievalErrors[0]??''} Try pasting the ingredients and cooking steps.`);
-      await ref.update({finishedAt:Date.now()});return;
+      await ref.update({finishedAt:Date.now()});await releaseImport(db,uid,id,attempt);return;
     }
     if(result.recipe.outcome!=='recipe') {
       await progress('skipped',result.recipe.reason?.slice(0,500)||'There were not enough ingredients and cooking instructions to save a recipe.');
-      await ref.update({retrievalErrors,finishedAt:Date.now()});return;
+      await ref.update({retrievalErrors,finishedAt:Date.now()});await releaseImport(db,uid,id,attempt);return;
     }
     await progress('checking','Saving your recipe and finishing its details…',4,{
       previewTitle:result.recipe.title,previewSummary:result.recipe.summary??null,
@@ -200,18 +209,21 @@ export async function runImport(db,uid,id,attempt) {
     let imagePath=null;
     if(evidence.imageURL){try {const image=await safeFetch(new URL(evidence.imageURL,claimed.url).href,2_000_000);if(/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')){const path=`users/${uid}/recipeMedia/${id}/cover-${attempt}`;await getStorage().bucket().file(path).save(image.bytes,{metadata:{contentType:image.headers['content-type']}});imagePath=path;}}catch{/* The recipe remains usable without artwork. */}}
     const recipe={...content,imagePath,id,sourceURL:claimed.url,sourceName:claimed.source,imageURL:typeof evidence.imageURL==='string'&&evidence.imageURL.startsWith('https://')?evidence.imageURL:null,modelRunID:result.runID,favorite:false,reviewed:false,createdAt:Date.now(),version:1};
+    if(claimed.source==='YouTube' && !evidence.transcript && !evidence.videoObservations && !retrieval.frameCount) recipe.warnings=[...new Set([...(recipe.warnings??[]),'Video speech and actions could not be checked; this recipe uses written source material.'])];
     validateRecipe(recipe);
-    const payload=JSON.stringify(recipe);
+    const payload=JSON.stringify(recipe),sharedID=sharedRecipeID(claimed.url,claimed.text,profilePayload),sharedRef=sharedID?db.doc(`sharedRecipes/${sharedID}`):null,limitRef=db.doc(`importLimits/${uid}`);
     const saved=await db.runTransaction(async tx=>{
-      const [state,deleted]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`))]);if(deleted.exists||!state.exists||state.data()?.status==='canceled'||state.data()?.attempt!==attempt)return;
+      const [state,deleted,limit,cached]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`)),tx.get(limitRef),sharedRef?tx.get(sharedRef):null]);if(deleted.exists||!state.exists||state.data()?.status==='canceled'||state.data()?.attempt!==attempt)return;
+      if(state.data()?.free && !activeImport(limit.data(),id,attempt)){tx.update(ref,{status:'failed',message:'This import expired. Please try again.'});return;}
       const recipeRef=db.doc(`users/${uid}/cookbook/${id}`);
       tx.set(recipeRef,{id,payload,updatedAt:Date.now()});
-      tx.set(recipeRef.collection('versions').doc('1'),{payload,createdAt:Date.now(),modelRunID:result.runID});
-      tx.update(ref,{status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,finishedAt:Date.now(),retrievalErrors});
+      if(sharedRef&&!cached?.exists)tx.set(sharedRef,{sourceURL:claimed.url,profileHash:createHash('sha256').update(profilePayload).digest('hex'),payload:JSON.stringify({...recipe,imagePath:null}),debug:importDebug(state.data()),createdAt:Date.now()});
+      if(activeImport(limit.data(),id,attempt))tx.set(limitRef,{day:importDay(),count:(limit.data()?.day===importDay()?limit.data()?.count??0:0)+1});
+      tx.update(ref,{status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,previewTitle:recipe.title,updatedAt:Date.now(),finishedAt:Date.now(),sharedID});
       return true;
     });
     if(!saved&&imagePath)await getStorage().bucket().file(imagePath).delete({ignoreNotFound:true});
-  }catch(error){const latest=await ref.get();if(latest.exists&&latest.data()?.status!=='canceled'&&latest.data()?.attempt===attempt)await ref.update({status:'failed',message:error.message==='Import canceled.'?error.message:'This import could not finish. Retry, or add the recipe text.',failurePoint:latest.data()?.message??latest.data()?.status??'Import',extractionReason:error.message?.slice(0,1000)??'Import failed.',finishedAt:Date.now()});}
+  }catch(error){const latest=await ref.get();if(latest.exists&&latest.data()?.status!=='canceled'&&latest.data()?.attempt===attempt)await ref.update({status:'failed',message:error.message==='Import canceled.'?error.message:'This import could not finish. Retry, or add the recipe text.',failurePoint:latest.data()?.message??latest.data()?.status??'Import',extractionReason:error.message?.slice(0,1000)??'Import failed.',finishedAt:Date.now()});await releaseImport(db,uid,id,attempt);}
 }
 export async function handleCompanion(req,res,{db,auth}) {
   try {
@@ -228,29 +240,44 @@ export async function handleCompanion(req,res,{db,auth}) {
     if(!allowedID(uid)||identity.firebase?.sign_in_provider==='anonymous'){send(res,403,{error:'Sign in to your cookbook.'});return;}
     if(req.url!=='/companion/delete-account-data'&&(await db.doc(`deletedAccounts/${uid}`).get()).exists){send(res,403,{error:'This account is being deleted.'});return;}
     if(req.url==='/companion/import') {
-      if(!process.env.XAI_API_KEY)throw new Error('Recipe AI is not configured.');
       const {url,text,source}=importInput(body);
       const id=createHash('sha256').update(url||'text:'+text).digest('hex').slice(0,32),ref=db.doc(`users/${uid}/imports/${id}`);
+      const admin=identity.admin===true;
+      const limitRef=db.doc(`importLimits/${uid}`),profilePayload=(await db.doc(`users/${uid}/settings/cooking`).get()).data()?.payload??'{}';
+      const sharedID=sharedRecipeID(url,text,profilePayload),sharedRef=sharedID?db.doc(`sharedRecipes/${sharedID}`):null;
       const result=await db.runTransaction(async tx=>{
-        const [previous,deleted]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`))]),old=previous.data();
+        const [previous,deleted,limit,cached]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`)),tx.get(limitRef),sharedRef?tx.get(sharedRef):null]),old=previous.data();
         if(deleted.exists)throw new Error('Account deleted.');
-        if(old && ['fetching','transcribing','extracting','checking'].includes(old.status) && Date.now()-(old.startedAt??old.createdAt)>900000) old.status='failed';
+        if(old && ['queued','fetching','transcribing','extracting','checking'].includes(old.status) && Date.now()-(old.startedAt??old.createdAt)>1200000) old.status='failed';
         if(old&&!['failed','skipped','canceled'].includes(old.status))return {id,attempt:old.attempt,existing:true};
-        const budgetRef=db.doc('aiBudget/imports'),budget=await tx.get(budgetRef);
-        const allocated=(budget.data()?.reservedCents??0)+100;
-        if(allocated>Number(process.env.IMPORT_BUDGET_CENTS??1500))throw new Error('The beta import allowance has been reached.');
+        const today=importDay(),used=limit.data()?.day===today?limit.data()?.count??0:0;
+        if(!admin && used>=1)throw new Error('Your free recipe for today is already saved. Try again tomorrow.');
+        if(!admin && limit.data()?.activeID && Date.now()-(limit.data()?.activeAt??0)<1200000)throw new Error('Finish your current recipe import first.');
         // Cleared history must not reuse a Cloud Tasks name or match an old worker.
         const attempt=(old?.attempt??Date.now())+1;
-        tx.set(budgetRef,{reservedCents:allocated,updatedAt:Date.now()});
-        tx.set(ref,{id,url,source,text,status:'queued',message:'Waiting to read your recipe…',createdAt:Date.now(),attempt,reservedCents:100});
-        return {id,attempt,existing:false};
+        if(cached?.exists) {
+          const recipe={...JSON.parse(cached.data().payload),id,imagePath:null,favorite:false,reviewed:false,createdAt:Date.now()};
+          validateRecipe(recipe);
+          tx.set(db.doc(`users/${uid}/cookbook/${id}`),{id,payload:JSON.stringify(recipe),updatedAt:Date.now()});
+          tx.set(ref,{...cached.data().debug,id,url,source,status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,previewTitle:recipe.title,createdAt:Date.now(),updatedAt:Date.now(),finishedAt:Date.now(),attempt,sharedID,cacheHit:true});
+          if(!admin)tx.set(limitRef,{day:today,count:used+1});
+          return {id,attempt,existing:false,cached:true};
+        }
+        if(!process.env.XAI_API_KEY)throw new Error('Recipe AI is not configured.');
+        // ponytail: simultaneous first imports can parse twice; add a shared lease if that becomes costly.
+        if(!admin)tx.set(limitRef,{day:today,count:used,activeID:id,activeAttempt:attempt,activeAt:Date.now()});
+        tx.set(ref,{id,url,source,text,status:'queued',message:'Waiting to read your recipe…',createdAt:Date.now(),attempt,free:!admin});
+        return {id,attempt,existing:false,cached:false};
       });
-      if(!result.existing){try {if(!await enqueue(uid,id,result.attempt))void runImport(db,uid,id,result.attempt);}catch(error){await ref.update({status:'failed',message:error.message});throw error;}}
+      if(!result.existing&&!result.cached){try {if(!await enqueue(uid,id,result.attempt))void runImport(db,uid,id,result.attempt);}catch(error){await ref.update({status:'failed',message:error.message});await releaseImport(db,uid,id,result.attempt);throw error;}}
       send(res,200,result);return;
     }
     if(req.url==='/companion/cancel') {
       if(!allowedID(body.id))throw new Error('Invalid import.');
-      await db.doc(`users/${uid}/imports/${body.id}`).update({status:'canceled',message:'Import canceled.'});send(res,200,{ok:true});return;
+      const ref=db.doc(`users/${uid}/imports/${body.id}`),doc=await ref.get();
+      await ref.update({status:'canceled',message:'Import canceled.'});
+      if(doc.exists)await releaseImport(db,uid,body.id,doc.data().attempt);
+      send(res,200,{ok:true});return;
     }
     if(req.url==='/companion/delete-recipe') {
       if(!allowedID(body.id))throw new Error('Invalid recipe.');
@@ -293,8 +320,10 @@ export async function handleCompanion(req,res,{db,auth}) {
       const jobs=await db.collection(`users/${uid}/imports`).get();
       for(const doc of jobs.docs)await doc.ref.update({status:'canceled'});
       await getStorage().bucket().deleteFiles({prefix:`users/${uid}/`});
-      await db.recursiveDelete(db.doc(`users/${uid}`));send(res,200,{ok:true});return;
+      await db.recursiveDelete(db.doc(`users/${uid}`));
+      await Promise.all([db.doc(`importLimits/${uid}`).delete(),db.doc(`aiQuestionLimits/${uid}`).delete()]);
+      send(res,200,{ok:true});return;
     }
     send(res,404,{error:'Not found.'});
-  }catch(error){const safe=['Paste a recipe link or ingredients and steps.','Keep recipe text under 40,000 characters.','Use a public recipe link.','Recipe import is not configured yet.','Recipe AI is not configured.','Could not queue this import. Please retry.','The beta import allowance has been reached.','Today’s beta question allowance has been reached.','Please sign in again before deleting your account.'];send(res,400,{error:safe.includes(error.message)?error.message:'This request could not be completed. Please try again.'});}
+  }catch(error){const safe=['Paste a recipe link or ingredients and steps.','Keep recipe text under 40,000 characters.','Use a public recipe link.','Recipe import is not configured yet.','Recipe AI is not configured.','Could not queue this import. Please retry.','Your free recipe for today is already saved. Try again tomorrow.','Finish your current recipe import first.','Today’s beta question allowance has been reached.','Please sign in again before deleting your account.'];send(res,400,{error:safe.includes(error.message)?error.message:'This request could not be completed. Please try again.'});}
 }

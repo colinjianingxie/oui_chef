@@ -192,6 +192,14 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "cookbook", "fieldPath": "payload", "indexes": [] },
+    { "collectionGroup": "cooks", "fieldPath": "payload", "indexes": [] },
+    { "collectionGroup": "imports", "fieldPath": "sourceText", "indexes": [] },
+    { "collectionGroup": "imports", "fieldPath": "originalTranscript", "indexes": [] },
+    { "collectionGroup": "imports", "fieldPath": "translatedTranscript", "indexes": [] },
+    { "collectionGroup": "imports", "fieldPath": "videoObservations", "indexes": [] },
+    { "collectionGroup": "sharedRecipes", "fieldPath": "payload", "indexes": [] },
+    { "collectionGroup": "sharedRecipes", "fieldPath": "debug", "indexes": [] },
     {
       "collectionGroup": "versions",
       "fieldPath": "recipe",

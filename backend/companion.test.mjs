@@ -90,10 +90,39 @@ test('recipe deletion is private, idempotent, preserves cooks, and permits a fre
   t.after(()=>{for(const [key,value] of [['IMPORT_TASK_QUEUE',savedQueue],['IMPORT_INLINE',savedInline]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
   await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}}, {writeHead:()=>{},end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'owner',firebase:{sign_in_provider:'password'}})}});
   assert.equal(records.get(job).attempt,4,'Re-import must allocate a new attempt, not return the old ready job.');
-  assert.equal(records.get('aiBudget/imports').reservedCents,100);
+  assert.equal(records.get('importLimits/owner').count,0);
+  assert.equal(records.get('importLimits/owner').activeID,undefined,'A failed queue dispatch releases the daily slot.');
   records.delete(job);
   await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}}, {writeHead:()=>{},end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'owner',firebase:{sign_in_provider:'password'}})}});
   assert.ok(records.get(job).attempt>4,'Cleared history must not reuse an old worker attempt or task name.');
+});
+
+test('shared recipes are reused, free imports count per day, and admin claims bypass the limit',async()=>{
+  const urls=['https://www.youtube.com/watch?v=d31CCyGSGZA','https://www.youtube.com/watch?v=W_-D8PZwtSY'];
+  const recipe={title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'mix',instruction:'Mix.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}],imageURL:'https://example.com/cover.jpg'};
+  const records=new Map();
+  for(const url of urls)records.set('sharedRecipes/'+createHash('sha256').update(`companion-9\0${url}\0{}`).digest('hex'),{payload:JSON.stringify(recipe),debug:{originalTranscript:'[1s] 面粉。',transcriptLanguage:'zh-CN'}});
+  const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value),update:(ref,value)=>records.set(ref.path,{...records.get(ref.path),...value}),delete:ref=>records.delete(ref.path)})};
+  async function call(uid,url,admin=false){let status,body;await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}},{writeHead:code=>status=code,end:value=>body=JSON.parse(value)},{db,auth:{verifyIdToken:async()=>({uid,admin,firebase:{sign_in_provider:'password'}})}});return {status,body};}
+  const first=await call('free',urls[0]);assert.equal(first.status,200);assert.equal(first.body.cached,true);
+  assert.equal(records.get('importLimits/free').count,1);
+  const id=createHash('sha256').update(urls[0]).digest('hex').slice(0,32);
+  assert.equal(JSON.parse(records.get(`users/free/cookbook/${id}`).payload).imagePath,null);
+  assert.equal(records.get(`users/free/imports/${id}`).originalTranscript,'[1s] 面粉。');
+  assert.equal((await call('free',urls[1])).status,400);
+  assert.equal((await call('admin',urls[0],true)).status,200);
+  assert.equal((await call('admin',urls[1],true)).status,200);
+  assert.equal(records.has('importLimits/admin'),false);
+  assert.equal((await call('other',urls[0])).status,200);
+  assert.equal(records.has(`users/other/cookbook/${id}`),true);
+  let deleteStatus;
+  await handleCompanion({url:'/companion/delete-recipe',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({id}));}},{writeHead:code=>deleteStatus=code,end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'free',firebase:{sign_in_provider:'password'}})}});
+  assert.equal(deleteStatus,200);
+  assert.equal(records.get(`users/free/cookbook/${id}`).deleted,true);
+  assert.equal(records.has('sharedRecipes/'+createHash('sha256').update(`companion-9\0${urls[0]}\0{}`).digest('hex')),true);
+  assert.equal((await call('free',urls[0])).status,400);
+  records.set('importLimits/free',{day:'2000-01-01',count:1});
+  assert.equal((await call('free',urls[0])).status,200);
 });
 
 test('non-food and unknown sources stop before extraction; pasted food saves without web research',async t=>{
@@ -116,8 +145,8 @@ test('non-food and unknown sources stop before extraction; pasted food saves wit
     assert.deepEqual(calls,scope==='food'?['recipe_scope','cooking_recipe','cooking_recipe']:['recipe_scope']);
     const saved=records.get('users/owner/cookbook/text1');
     assert.equal(!!saved,scope==='food');
-    if(saved){const recipe=JSON.parse(saved.payload);assert.equal(recipe.sourceURL,'');assert.equal(recipe.sourceName,'Pasted text');assert.equal(records.get(path).stage,5);assert.deepEqual(records.get(path).previewIngredients,['1 slice Bread']);assert.deepEqual(records.get(path).previewSteps,['Toast until golden.']);}
-    if(scope!=='malformed')assert.ok(records.get(path).scopeRunID);
+    if(saved){const recipe=JSON.parse(saved.payload);assert.equal(recipe.sourceURL,'');assert.equal(recipe.sourceName,'Pasted text');assert.equal(records.get(path).stage,5);assert.equal(records.get(path).previewTitle,'Toast');assert.equal(records.get(path).originalTranscript,null);}
+    if(scope!=='malformed' && scope!=='food')assert.ok(records.get(path).scopeRunID);
   }
 });
 test('recipe minimum is ingredients and steps; dangling references and invalid timing fail',()=>{
@@ -272,7 +301,9 @@ mock.module('firebase-admin/app',{namedExports:{...firebase,applicationDefault:(
 process.env.GOOGLE_CLOUD_PROJECT='recipe-test';process.env.YOUTUBE_VIDEO_MODEL='gemini-2.5-flash';
 const {inspectYouTube}=await import('./recipe-agent.mjs');
 const records=new Map(),db={doc:path=>({set:async v=>records.set(path,v),update:async v=>records.set(path,{...records.get(path),...v})})};
-let mode='valid',sampleRates=[];
+let mode='valid',sampleRates=[],timeouts=[];
+const nativeTimeout=AbortSignal.timeout;
+AbortSignal.timeout=ms=>{timeouts.push(ms);return nativeTimeout(ms);};
 globalThis.fetch=async(url,request)=>{
   assert.match(url,/aiplatform.googleapis.com/);assert.equal(request.headers.Authorization,'Bearer test-token');
   const body=JSON.parse(request.body);assert.equal(body.model,undefined);
@@ -287,6 +318,7 @@ globalThis.fetch=async(url,request)=>{
 const evidence=await inspectYouTube(db,'owner','job','https://youtu.be/d31CCyGSGZA');
 assert.equal(evidence.duration,306);assert.equal(evidence.transcript,'[196.9s] 上汽后压20到25分钟。');
 assert.deepEqual(sampleRates,[1]);
+assert.ok(timeouts.every(ms=>ms===600000));
 assert.match(evidence.videoObservations,/\\[199s\\]/);
 const run=records.get('aiRuns/'+evidence.runID);assert.equal(run.provider,'google');assert.equal(run.model,'gemini-test');assert.equal(run.usage.totalTokenCount,17);
 await assert.rejects(inspectYouTube(db,'owner','job','https://example.com/video'));

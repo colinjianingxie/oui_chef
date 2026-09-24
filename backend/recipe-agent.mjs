@@ -42,13 +42,13 @@ export async function providerCall(db, uid, task, body, { importID=null, session
       url=`https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/${model}:generateContent`;
       body={...body};delete body.model;
     }
-    const response=await fetch(url, {method:'POST',headers:{Authorization:`Bearer ${token}`,...(multipart?{}:{'Content-Type':'application/json'})}, body:multipart?body:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
+    const response=await fetch(url, {method:'POST',headers:{Authorization:`Bearer ${token}`,...(multipart?{}:{'Content-Type':'application/json'})}, body:multipart?body:JSON.stringify(body),signal:AbortSignal.timeout(provider==='google'?600000:120000)});
     const data=await response.json();
     const reportedModel=data.model??data.modelVersion;
     await ref.update({status:response.ok?'completed':'failed',finishedAt:Date.now(),latencyMs:Date.now()-startedAt,model:reportedModel??model,modelReported:typeof reportedModel==='string',requestID:data.id??data.responseId??null,usage:data.usage??data.usageMetadata??{},httpStatus:response.status});
     if(!response.ok) throw new Error('The recipe AI is temporarily unavailable.');
     return {data,runID};
-  } catch(error) { await ref.update({status:'failed',finishedAt:Date.now(),error:'provider_request_failed'}); throw error; }
+  } catch(error) { await ref.update({status:'failed',finishedAt:Date.now(),error:error.name==='TimeoutError'?'provider_timeout':'provider_request_failed'}); throw error; }
 }
 export async function inspectYouTube(db,uid,importID,url,fps=1) {
   url=normalizeURL(url);
