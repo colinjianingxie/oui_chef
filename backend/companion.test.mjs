@@ -81,6 +81,7 @@ test('recipe deletion is private, idempotent, preserves cooks, and permits a fre
   assert.equal(await call(id,'stranger'),200);assert.equal(records.get(path).payload,'recipe');
   assert.equal(await call(id),200);assert.equal(await call(id),200);
   assert.equal(records.get(path).deleted,true);assert.equal(records.has(path+'/versions/1'),false);
+  assert.equal(records.get(`users/owner/recipeArchive/${id}`).payload,'recipe');
   assert.equal(records.get(job).status,'canceled');assert.equal(records.get(job).attempt,3);
   assert.equal(records.get(`users/other/cookbook/${id}`).payload,'other');assert.equal(records.get('users/owner/cooks/cook').payload,'history');
   assert.notEqual(importTaskID('owner',id,3),importTaskID('owner',id,4));

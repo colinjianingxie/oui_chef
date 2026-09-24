@@ -286,6 +286,7 @@ export async function handleCompanion(req,res,{db,auth}) {
         const [saved,imported,deleted]=await Promise.all([tx.get(recipe),tx.get(job),tx.get(db.doc(`deletedAccounts/${uid}`))]);
         if(deleted.exists)throw new Error('Account deleted.');
         if(!saved.exists)return;
+        if(typeof saved.data()?.payload==='string')tx.set(db.doc(`users/${uid}/recipeArchive/${body.id}`),{id:body.id,payload:saved.data().payload,archivedAt:Date.now()});
         // A tombstone prevents stale/offline clients from restoring a deleted recipe.
         tx.set(recipe,{id:body.id,deleted:true,updatedAt:Date.now()});
         tx.delete(recipe.collection('versions').doc('1'));

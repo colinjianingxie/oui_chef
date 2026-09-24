@@ -36,6 +36,7 @@ Firebase Authentication provides identity. Firestore paths are:
 - `users/{uid}/settings/cooking`: preferences.
 - `users/{uid}/imports/{id}`: asynchronous import state and source evidence for the default-on Debug view.
 - `users/{uid}/cookbook/{id}`: normalized recipe JSON and metadata.
+- `users/{uid}/recipeArchive/{id}`: server-owned latest copy retained when a recipe is removed from the cookbook; account deletion removes it.
 - `users/{uid}/cooks/{id}`: recipe snapshot and cooking history, with a server revision.
 - `sharedRecipes/{sourceAndProfileHash}`: server-owned successful URL parse, reused by other accounts with the same recipe preferences. User-supplied text is never shared.
 - `importLimits/{uid}`: free-account daily count and in-flight reservation.
