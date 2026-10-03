@@ -1,5 +1,17 @@
 # TestFlight
 
+## October 3, 2026 — cooking feedback fixes, build 15
+
+Oui Chef AI **1.0 (15)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **19:54:46 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `313e373`, pushed to `main`. Upload ID: `f8a55139-6d29-4d39-8c10-a893d7c5f87c`. The app adds reliable successive step timers, duplicate-start protection, cleanup of expired timers, ingredient Select all / Deselect all, source-order step previews, earlier YouTube thumbnails and a decoded-image cache. Voice context includes current time and timer status. The parser and voice-prompt server changes are committed in the same source revision but **have not been deployed**. Their validation results and remaining semantic-completeness limits are recorded in [recipe import diagnostics](RECIPE_IMPORTS.md#cooking-feedback-fixes--october-2-2026).
+
+Verification: 33 Swift core tests, four focused simulator checks, and 35 backend regression checks passed; two emulator-only backend checks were skipped. The final parser prompt clarification also passed the focused 21-test suite with one emulator-only skip. Those checks were reused against the same source state. This release's signed Release archive and signature verification passed with Xcode 26.6. No paid AI checks were run during this upload.
+
+Archive, app dSYM and Share Extension dSYM: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-03/OuiChef-1.0-cooking-313e373.xcarchive`. Sanitized receipt: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-03/OuiChef-1.0-15-upload-receipt.json`, also retained locally at `.build/testflight-20261003/upload-receipt.json`. Xcode assigned upload build 15; source/archive settings remain 1.0 (2). Existing missing-dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp and openssl_grpc did not block upload; crash frames inside those dependencies may have limited symbols.
+
+No tester assignments, Beta App Review submissions or App Store release submissions were changed.
+
 ## September 23, 2026 — shared imports and Debug mode, build 14
 
 Oui Chef AI **1.0 (14)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **02:49:33 UTC on September 24**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**; App Store Connect is processing the package. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
