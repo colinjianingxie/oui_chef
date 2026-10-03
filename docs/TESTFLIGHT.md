@@ -1,5 +1,15 @@
 # TestFlight
 
+## October 3, 2026 — recipe sharing and swipe deletion, build 16
+
+Oui Chef AI **1.0 (16)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **20:46:45 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `f8e98f1`, pushed to `main`. Upload ID: `2c752384-3afb-410c-a0aa-115da9e5fef0`. This build adds native left-swipe deletion for individual unfinished cooking sessions, a recipe share sheet, Firebase-hosted recipe links, automatic cookbook save/open for recipients, and a direct voice-cooking button. The signed app and provisioning profile both include the Associated Domains capability. Firebase Hosting and matching backend revision `oui-chef-voice-sharing-20261003` are deployed; health, authentication rejection, live association JSON, and Hosting routing passed. See [sharing deployment and checks](RECIPE_SHARING.md).
+
+Apple's association CDN still returned a cached 404 from **20:28:03 UTC**, before Hosting was published, with a one-hour cache lifetime. The origin association file returns valid JSON. Until Apple refreshes this cached result, links can open the fallback webpage and its **Open in Oui Chef** button. Direct HTTPS opening on a physical device remains to be verified after installing this build and cache propagation.
+
+Verification: 38 backend tests passed (two emulator-only checks skipped), link validation passed, and both native sharing and swipe-deletion journeys passed. No new paid AI checks ran. Archive, app dSYM and Share Extension dSYM: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-03/OuiChef-1.0-sharing-f8e98f1.xcarchive`. Receipt: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-03/OuiChef-1.0-16-upload-receipt.json`, also in `.build/testflight-20261003-sharing/upload-receipt.json`. Xcode assigned upload build 16; the source/archive setting remains 1.0 (2). The existing five Firebase/gRPC missing-dSYM warnings remain; app and extension symbols are preserved. No tester assignments or review submissions changed.
+
 ## October 3, 2026 — cooking feedback fixes, build 15
 
 Oui Chef AI **1.0 (15)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **19:54:46 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).

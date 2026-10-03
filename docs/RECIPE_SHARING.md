@@ -26,7 +26,7 @@ Verification: 38 backend tests passed (two emulator-only checks skipped), the li
 - Apple app association: `84KXUNPGCM.com.xie.ouichef`, `/r/*` only.
 - Backend: `share-recipe`, `receive-share`, and `delete-cook` under `/companion/`; all require Firebase authentication. Only the recipe landing page is public.
 - Firestore: server-owned `recipeLinks/{opaqueID}` and private `users/{uid}/recipeLinks/{contentHash}`. Existing deny-by-default rules cover these collections; no new client access is required.
-- Deploy the backend before Firebase Hosting. Ship an updated signed app with the Associated Domains entitlement; build 15 cannot handle these links. Verify that the regenerated distribution profile includes Associated Domains. Apple may cache the association file, so verify on a physical device after installing the new build.
+- Deploy the backend before Firebase Hosting. Build **1.0 (16)** includes the Associated Domains entitlement and was accepted by Apple; processing/tester availability remains pending. Its signature and provisioning profile were verified. Build 15 cannot handle these links. Apple's association CDN still cached a pre-deployment 404 from 20:28:03 UTC with a one-hour lifetime; the fallback webpage's Open button remains available. Verify direct HTTPS opening on a physical device after installing the new build and cache propagation.
 - No existing user cookbook or cooking-history records need migration.
 
 ## On the go
