@@ -4,9 +4,20 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeURL, publicAddress, sourceName, importInput, captionText, captionTracks, readCaptions, sampleSeconds, mediaFormat, retrievalError, descriptionLinks } from './import-source.mjs';
-import { classifySource, validateRecipe } from './recipe-agent.mjs';
+import { classifySource, extractRecipe, validateRecipe, validateSourceCoverage, validateSourceReview } from './recipe-agent.mjs';
 import { importTaskID, handleCompanion, runImport } from './companion.mjs';
 import { sessionUpdate } from './xai.mjs';
+
+function sourceRecord(recipe) {
+  return {outcome:recipe.outcome??'recipe',reason:recipe.reason??'',
+    ingredients:(recipe.ingredients??[]).map(item=>({id:item.id,name:item.name,quantity:item.quantity,sourceDetail:item.quantity+' '+item.name})),
+    actions:(recipe.steps??[]).map(step=>({id:step.id,instruction:step.instruction,sourceDetail:step.instruction,durationSeconds:step.durationSeconds??null})),
+    alternatives:[],warnings:[]};
+}
+function verifiedRecipe(recipe,body) {
+  const passages=JSON.parse(body.messages[4].content).sourcePassages;
+  return {recipe,sourceReview:passages.map(p=>({passageID:p.id,kind:recipe.outcome==='recipe'?'covered':'missing',stepIDs:(recipe.steps??[]).map(step=>step.id),ingredientIDs:[],reason:'Fixture evidence.'}))};
+}
 
 test('public source validation rejects internal targets and recognizes share URLs',()=>{
   for(const url of ['file:///etc/passwd','https://localhost/a','https://127.0.0.1/a','https://[::1]/','https://name:password@example.com','https://example.com:444/a'])assert.throws(()=>normalizeURL(url));
@@ -98,11 +109,11 @@ test('recipe deletion is private, idempotent, preserves cooks, and permits a fre
   assert.ok(records.get(job).attempt>4,'Cleared history must not reuse an old worker attempt or task name.');
 });
 
-test('shared recipes are reused, free imports count per day, and admin claims bypass the limit',async()=>{
+test('shared recipes are reused only with source coverage, free imports count per day, and admin claims bypass the limit',async t=>{
   const urls=['https://www.youtube.com/watch?v=d31CCyGSGZA','https://www.youtube.com/watch?v=W_-D8PZwtSY'];
   const recipe={title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'mix',instruction:'Mix.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}],imageURL:'https://example.com/cover.jpg'};
   const records=new Map();
-  for(const url of urls)records.set('sharedRecipes/'+createHash('sha256').update(`companion-9\0${url}\0{}`).digest('hex'),{payload:JSON.stringify(recipe),debug:{originalTranscript:'[1s] 面粉。',transcriptLanguage:'zh-CN'}});
+  for(const url of urls)records.set('sharedRecipes/'+createHash('sha256').update(`companion-13\0${url}\0{}`).digest('hex'),{payload:JSON.stringify(recipe),debug:{originalTranscript:'[1s] 面粉。',transcriptLanguage:'zh-CN',sourcePlan:sourceRecord(recipe),sourcePassageIDs:['p1'],sourceReview:[{passageID:'p1',kind:'covered',stepIDs:recipe.steps.map(step=>step.id),ingredientIDs:[],reason:''}]}});
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value),update:(ref,value)=>records.set(ref.path,{...records.get(ref.path),...value}),delete:ref=>records.delete(ref.path)})};
   async function call(uid,url,admin=false){let status,body;await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}},{writeHead:code=>status=code,end:value=>body=JSON.parse(value)},{db,auth:{verifyIdToken:async()=>({uid,admin,firebase:{sign_in_provider:'password'}})}});return {status,body};}
   const first=await call('free',urls[0]);assert.equal(first.status,200);assert.equal(first.body.cached,true);
@@ -120,10 +131,31 @@ test('shared recipes are reused, free imports count per day, and admin claims by
   await handleCompanion({url:'/companion/delete-recipe',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({id}));}},{writeHead:code=>deleteStatus=code,end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'free',firebase:{sign_in_provider:'password'}})}});
   assert.equal(deleteStatus,200);
   assert.equal(records.get(`users/free/cookbook/${id}`).deleted,true);
-  assert.equal(records.has('sharedRecipes/'+createHash('sha256').update(`companion-9\0${urls[0]}\0{}`).digest('hex')),true);
+  assert.equal(records.has('sharedRecipes/'+createHash('sha256').update(`companion-13\0${urls[0]}\0{}`).digest('hex')),true);
   assert.equal((await call('free',urls[0])).status,400);
   records.set('importLimits/free',{day:'2000-01-01',count:1});
   assert.equal((await call('free',urls[0])).status,200);
+  const key=process.env.XAI_API_KEY;
+  t.after(()=>{if(key===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;});
+  delete process.env.XAI_API_KEY;
+  const shared='sharedRecipes/'+createHash('sha256').update(`companion-13\0${urls[0]}\0{}`).digest('hex');
+  for(const mode of ['missing-record','lost-action','missing-review','lost-passage','old-version']) {
+    const cached=structuredClone(records.get(shared));
+    if(mode==='missing-record')delete cached.debug.sourcePlan;
+    if(mode==='lost-action')cached.debug.sourcePlan.actions.push({id:'cool',instruction:'Cool.',sourceDetail:'Cool before serving.',durationSeconds:600});
+    if(mode==='missing-review')delete cached.debug.sourceReview;
+    if(mode==='lost-passage')cached.debug.sourcePassageIDs.push('unreviewed');
+    records.set(shared,cached);
+    if(mode==='old-version') {
+      records.delete(shared);
+      records.set('sharedRecipes/'+createHash('sha256').update(`companion-10\0${urls[0]}\0{}`).digest('hex'),{payload:JSON.stringify(recipe)});
+    }
+    const response=await call(mode,urls[0]);
+    assert.equal(response.status,400);
+    assert.equal(response.body.error,'Recipe AI is not configured.','An invalid/old cache must take the fresh extraction path.');
+    assert.equal(records.has(`users/${mode}/cookbook/${id}`),false);
+    records.set(shared,{payload:JSON.stringify(recipe),debug:{sourcePlan:sourceRecord(recipe),sourcePassageIDs:['p1'],sourceReview:[{passageID:'p1',kind:'covered',stepIDs:recipe.steps.map(step=>step.id),ingredientIDs:[],reason:''}]}});
+  }
 });
 
 test('non-food and unknown sources stop before extraction; pasted food saves without web research',async t=>{
@@ -139,11 +171,11 @@ test('non-food and unknown sources stop before extraction; pasted food saves wit
       assert.equal(url,'https://api.x.ai/v1/chat/completions');
       if(name==='recipe_scope')assert.match(body.messages[0].content,/chemical synthesis/);
       const content=name==='recipe_scope'?{scope,reason:'Classification fixture'}:{outcome:'recipe',reason:'',title:'Toast',ingredients:[{id:'bread',name:'Bread',quantity:'1 slice'}],steps:[{id:'toast',instruction:'Toast until golden.',ingredients:[{ingredientID:'bread',quantity:'1 slice'}]}]};
-      return {ok:true,status:200,json:async()=>({model:'test-model',choices:[{finish_reason:'stop',message:{content:JSON.stringify(content)}}]})};
+      return {ok:true,status:200,json:async()=>({model:'test-model',choices:[{finish_reason:'stop',message:{content:JSON.stringify(name==='source_recipe'?sourceRecord(content):name==='cooking_recipe'?verifiedRecipe(content,body):content)}}]})};
     };
     await runImport(db,'owner','text1',1);
     assert.equal(records.get(path).status,scope==='food'?'ready':scope==='malformed'?'failed':'skipped');
-    assert.deepEqual(calls,scope==='food'?['recipe_scope','cooking_recipe','cooking_recipe']:['recipe_scope']);
+    assert.deepEqual(calls,scope==='food'?['recipe_scope','source_recipe','cooking_recipe']:['recipe_scope']);
     const saved=records.get('users/owner/cookbook/text1');
     assert.equal(!!saved,scope==='food');
     if(saved){const recipe=JSON.parse(saved.payload);assert.equal(recipe.sourceURL,'');assert.equal(recipe.sourceName,'Pasted text');assert.equal(records.get(path).stage,5);assert.equal(records.get(path).previewTitle,'Toast');assert.equal(records.get(path).originalTranscript,null);}
@@ -156,6 +188,105 @@ test('recipe minimum is ingredients and steps; dangling references and invalid t
   assert.throws(()=>validateRecipe({...recipe,steps:[]}));
   assert.throws(()=>validateRecipe({...recipe,steps:[{...recipe.steps[0],durationSeconds:-1}]}));
   assert.throws(()=>validateRecipe({...recipe,steps:[{...recipe.steps[0],ingredients:[{ingredientID:'not-found'}]}]}));
+});
+test('normalization cannot drop or rewrite the independently extracted source actions',async t=>{
+  const previous=globalThis.fetch,key=process.env.XAI_API_KEY;
+  t.after(()=>{globalThis.fetch=previous;if(key===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;});
+  process.env.XAI_API_KEY='test-only';
+  const rest=round=>({id:`rest${round}`,title:round?`Rest after fold ${round}`:'Initial rest',instruction:'Cover and rest for 30 minutes.',ingredients:[],durationSeconds:1800});
+  const recipe={outcome:'recipe',title:'Focaccia',ingredients:[{id:'flour',name:'Flour',quantity:'560 g'}],steps:[
+    {id:'mix',instruction:'Mix the dough.',ingredients:[{ingredientID:'flour',quantity:'560 g'}]},rest(0),
+    ...[1,2,3,4].flatMap(round=>[{id:`fold${round}`,instruction:'Stretch and fold four sides.',ingredients:[]},rest(round)])
+  ]};
+  const sourcePlan=sourceRecord(recipe);
+  const evidence={transcript:'[100s] Cover the mixed dough and leave it for half an hour before folding. [113s] Perform four rounds, with a 30-minute rest after each round.',transcriptLanguage:'en'};
+  const db={doc:()=>({set:async()=>{},update:async()=>{}})};
+  for(const mode of ['valid','missing initial rest','missing untimed fold','wrong duration','source time marked estimated','reordered steps','merged waits','invented ingredient','rewritten source record','truncated']) {
+    const calls=[];
+    globalThis.fetch=async(url,request)=>{
+      const body=JSON.parse(request.body),name=body.response_format.json_schema.name;calls.push(name);
+      let output;
+      if(name==='source_recipe') {
+        assert.equal(body.messages.length,2,'The source reader must not see a draft recipe.');
+        output=sourcePlan;
+      } else {
+        assert.deepEqual(JSON.parse(body.messages[2].content).sourcePlan,sourcePlan);
+        output=structuredClone(recipe);
+        if(mode==='missing initial rest'||mode==='rewritten source record')output.steps=output.steps.filter(step=>step.id!=='rest0');
+        if(mode==='missing untimed fold')output.steps=output.steps.filter(step=>step.id!=='fold2');
+        if(mode==='wrong duration')output.steps.find(step=>step.id==='rest2').durationSeconds=30;
+        if(mode==='source time marked estimated')output.steps.find(step=>step.id==='rest2').timingEstimated=true;
+        if(mode==='reordered steps')[output.steps[2],output.steps[3]]=[output.steps[3],output.steps[2]];
+        if(mode==='merged waits')output.steps=output.steps.filter(step=>step.id!=='rest3');
+        if(mode==='invented ingredient')output.ingredients.push({id:'sugar',name:'Sugar',quantity:'1 cup'});
+        if(mode==='rewritten source record')output.sourcePlan=sourceRecord(output);
+      }
+      return {ok:true,status:200,json:async()=>({choices:[{finish_reason:mode==='truncated'?'length':'stop',message:{content:JSON.stringify(name==='cooking_recipe'?verifiedRecipe(output,body):output)}}]})};
+    };
+    if(mode==='valid') {
+      const result=await extractRecipe(db,'test','focaccia',evidence,{});
+      assert.deepEqual(result.recipe.steps.map(step=>step.id),['mix','rest0','fold1','rest1','fold2','rest2','fold3','rest3','fold4','rest4']);
+      assert.deepEqual(result.sourcePlan,sourcePlan);
+      assert.equal(result.recipe.steps.filter(step=>step.durationSeconds===1800).length,5);
+    } else await assert.rejects(extractRecipe(db,'test','focaccia',evidence,{}),/source|incomplete/,mode);
+    assert.deepEqual(calls,mode==='truncated'?['source_recipe']:['source_recipe','cooking_recipe']);
+  }
+});
+test('source coverage protects untimed safety actions, unknown times and alternative routes',()=>{
+  const sourcePlan={outcome:'recipe',reason:'',ingredients:[{id:'water',name:'Water',quantity:'500 ml',sourceDetail:'Add 500 ml water.'}],actions:[
+    {id:'cook',instruction:'Pressure cook.',sourceDetail:'Cook for 20 minutes once at pressure.',durationSeconds:1200},
+    {id:'release',instruction:'Release pressure fully.',sourceDetail:'Release pressure fully before opening.',durationSeconds:null},
+    {id:'open',instruction:'Open the cooker.',sourceDetail:'Only then open the cooker.',durationSeconds:null}
+  ],alternatives:['Optional: refrigerate after cooling.'],warnings:['Do not open while pressurized.']};
+  const recipe={title:'Pressure-cooked food',ingredients:[{id:'water',name:'Water',quantity:'500 ml'}],steps:sourcePlan.actions.map(action=>({...action,ingredients:[]})),notes:sourcePlan.alternatives,warnings:sourcePlan.warnings};
+  assert.equal(validateSourceCoverage(recipe,sourcePlan),recipe);
+  assert.throws(()=>validateSourceCoverage({...recipe,steps:recipe.steps.filter(step=>step.id!=='release')},sourcePlan),/source actions/);
+  assert.throws(()=>validateSourceCoverage({...recipe,notes:[]},sourcePlan),/alternatives/);
+  assert.throws(()=>validateSourceCoverage({...recipe,warnings:[]},sourcePlan),/warnings/);
+  assert.throws(()=>validateSourceCoverage({...recipe,steps:recipe.steps.map(step=>step.id==='release'?{...step,durationSeconds:600}:step)},sourcePlan),/source timing/);
+  assert.throws(()=>validateSourceCoverage(recipe,{...sourcePlan,actions:[sourcePlan.actions[0],sourcePlan.actions[0]]}),/duplicate/);
+});
+test('verification must account for original source passages even when both recipe passes omit the same wait',async t=>{
+  const previous=globalThis.fetch,key=process.env.XAI_API_KEY;
+  t.after(()=>{globalThis.fetch=previous;if(key===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;});
+  process.env.XAI_API_KEY='test-only';
+  const evidence={transcript:'[180s] Perform the fourth series of folds.\n[190s] Cover and either refrigerate overnight or rest for half an hour to bake today.\n[214s] Grease the pan and transfer the dough.'};
+  const recipe={outcome:'recipe',title:'Dough',ingredients:[{id:'dough',name:'Dough',quantity:'1 batch'}],steps:[
+    {id:'fold4',instruction:'Fold the dough.',ingredients:[],durationSeconds:null},
+    {id:'final-rest',instruction:'Cover the bowl.',ingredients:[],durationSeconds:null},
+    {id:'transfer',instruction:'Grease the pan and transfer the dough.',ingredients:[],durationSeconds:null}
+  ]};
+  let savedReview;
+  const db={doc:()=>({set:async()=>{},update:async()=>{}})};
+  globalThis.fetch=async(url,request)=>{
+    const body=JSON.parse(request.body),source=body.response_format.json_schema.name==='source_recipe';
+    let output=sourceRecord(recipe);
+    if(!source) {
+      const passages=JSON.parse(body.messages[4].content).sourcePassages;
+      assert.deepEqual(passages.map(p=>p.id),['p1','p2','p3']);
+      assert.match(passages[1].text,/half an hour/,'The review obligation must come from original evidence, not the incomplete source record.');
+      output={recipe,sourceReview:[
+        {passageID:'p1',kind:'covered',stepIDs:['fold4'],ingredientIDs:[],reason:''},
+        {passageID:'p2',kind:'missing',stepIDs:[],ingredientIDs:[],reason:'Covering the bowl omits the default half-hour rest.'},
+        {passageID:'p3',kind:'covered',stepIDs:['transfer'],ingredientIDs:[],reason:''}
+      ]};
+    }
+    return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}]})};
+  };
+  assert.equal(validateSourceCoverage(recipe,sourceRecord(recipe)),recipe,'The original agreement-only check misses this omission.');
+  await assert.rejects(extractRecipe(db,'test','missing-wait',evidence,{},async result=>{if(result.sourceReview)savedReview=result.sourceReview;}),/does not cover source passage p2/);
+  assert.equal(savedReview[1].kind,'missing','Retain the rejected review for diagnosis.');
+  const ids=['p1','p2','p3'];
+  assert.throws(()=>validateSourceReview(recipe,ids,savedReview.filter(entry=>entry.kind!=='missing')),/did not review all/);
+  assert.throws(()=>validateSourceReview(recipe,ids,[savedReview[0],savedReview[0],savedReview[2]]),/repeated/);
+  assert.throws(()=>validateSourceReview(recipe,ids,[{...savedReview[0],stepIDs:['invented']},savedReview[1],savedReview[2]]),/Invalid/);
+  const fixed=structuredClone(recipe);fixed.steps[1].instruction='Cover and rest for half an hour.';fixed.steps[1].durationSeconds=1800;
+  const reviewed=savedReview.map(entry=>entry.kind==='missing'?{...entry,kind:'covered',stepIDs:['final-rest'],reason:'Default rest is present; overnight refrigeration is the alternative.'}:entry);
+  assert.equal(validateSourceReview(fixed,ids,reviewed),fixed);
+  const ingredientEntry={passageID:'ingredients',kind:'ingredients',stepIDs:[],ingredientIDs:['dough'],reason:'One batch of dough.'};
+  assert.equal(validateSourceReview(fixed,['ingredients',...ids],[ingredientEntry,...reviewed]),fixed);
+  assert.throws(()=>validateSourceReview(fixed,['ingredients',...ids],[{...ingredientEntry,ingredientIDs:['invented']},...reviewed]),/Invalid/);
+  assert.throws(()=>validateSourceReview(fixed,['ingredients',...ids],[{...ingredientEntry,kind:'covered'},...reviewed]),/needs recipe references/);
 });
 test('social metadata cannot reject an unseen cooking video, but actual non-food evidence still can',async t=>{
   const previous=globalThis.fetch,key=process.env.XAI_API_KEY;
@@ -246,10 +377,14 @@ test('AI extraction logs provider, actual model and token usage without saving s
     assert.match(body.messages[0].content,/preferences.voiceLanguage \(English if absent\)/);
     const media=JSON.parse(body.messages[1].content[1].text).evidence;
     assert.equal(media.transcript,'[88.51s] 冷水下锅。');assert.equal(media.transcriptTranslation,'[88.51s] Put it in cold water.');
-    return {ok:true,status:200,json:async()=>({id:'provider-request',model:'resolved-model-version',usage:{prompt_tokens:42,completion_tokens:12},choices:[{finish_reason:'stop',message:{content:JSON.stringify({outcome:'insufficient',reason:'Ingredients without cooking instructions.'})}}]})};
+    assert.equal(media.videoObservations,'[90s] Release pressure before opening.');
+    const written=JSON.parse(body.messages[1].content[0].text);
+    assert.ok(written.evidence.text.endsWith('Late source instruction: cool before serving.'));
+    return {ok:true,status:200,json:async()=>({id:'provider-request',model:'resolved-model-version',usage:{prompt_tokens:42,completion_tokens:12},choices:[{finish_reason:'stop',message:{content:JSON.stringify(sourceRecord({outcome:'insufficient',reason:'Ingredients without cooking instructions.'}))}}]})};
   };
-  const result=await extractRecipe(db,'owner','import1',{text:'private source content'.repeat(6000),transcript:'[88.51s] 冷水下锅。',transcriptLanguage:'zh-CN',transcriptTranslation:'[88.51s] Put it in cold water.'},{allergies:'peanuts'});
+  const result=await extractRecipe(db,'owner','import1',{text:'private source content'.repeat(6000)+'Late source instruction: cool before serving.',transcript:'[88.51s] 冷水下锅。',transcriptLanguage:'zh-CN',transcriptTranslation:'[88.51s] Put it in cold water.',videoObservations:'[90s] Release pressure before opening.'},{allergies:'peanuts'});
   assert.equal(result.recipe.outcome,'insufficient');
+  await assert.rejects(extractRecipe(db,'owner','too-long',{text:'x'.repeat(500001)},{}),/too long to check completely/);
   const record=records.get(`aiRuns/${result.runID}`);
   assert.equal(record.provider,'xai');assert.equal(record.model,'resolved-model-version');assert.equal(record.status,'completed');assert.equal(record.usage.prompt_tokens,42);
   assert.ok(!JSON.stringify(record).includes('private source content'));
@@ -359,13 +494,17 @@ mock.module('./import-source.mjs',{namedExports:{...source,
     return {url,text:'Written method',structured:[{'@type':'Recipe',name:'Bread'}]};
   }
 }});
+${sourceRecord.toString()}
+${verifiedRecipe.toString()}
 const {runImport}=await import('./companion.mjs');
 process.env.XAI_API_KEY='test-only';
 const recipe={outcome:'recipe',title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'bake',instruction:'Bake.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}]};
-for(mode of ['food','html','research','research-failed','broken-link','unknown','non_food','spanish','visual','speech']){
+for(mode of ['food','html','research','research-failed','broken-link','unknown','non_food','spanish','visual','speech','omitted-action','unreviewed-source','stale-cache']){
   events=[];
   const path='users/owner/imports/check', records=new Map([[path,{url:'https://www.youtube.com/watch?v=W_-D8PZwtSY',source:'YouTube',status:'queued',attempt:1}]]);
   if(mode==='spanish')records.set('users/owner/settings/cooking',{payload:JSON.stringify({voiceLanguage:'Spanish'})});
+  const staleCache='sharedRecipes/${createHash('sha256').update('companion-13\0https://www.youtube.com/watch?v=W_-D8PZwtSY\0{}').digest('hex')}';
+  if(mode==='stale-cache')records.set(staleCache,{payload:'invalid cached recipe'});
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),set:async value=>records.set(path,value),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>ref.set(value),update:(ref,value)=>ref.update(value)})};
   globalThis.fetch=async(url,request)=>{
     if(url.endsWith('/stt')){
@@ -403,17 +542,36 @@ for(mode of ['food','html','research','research-failed','broken-link','unknown',
     }
     const complete=!['research','research-failed'].includes(mode) || !!evidence.writtenResearch;
     const result=scopeCall?{scope:mode==='non_food'?'non_food':mode==='unknown'||['visual','speech'].includes(mode)&&events.filter(e=>e==='scope').length===1?'unknown':'food',reason:'fixture'}:complete?recipe:{outcome:'insufficient',reason:'Missing steps'};
-    return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(result)}}]})};
+    const name=body.response_format.json_schema.name;
+    const output=name==='source_recipe'?sourceRecord(result):name==='cooking_recipe'?verifiedRecipe(result,body):result;
+    if(mode==='omitted-action' && output.actions)output.actions.unshift({id:'rest',instruction:'Rest before baking.',sourceDetail:'Rest for thirty minutes before baking.',durationSeconds:1800});
+    if(mode==='unreviewed-source' && output.sourceReview)output.sourceReview.shift();
+    return {ok:true,status:200,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}]})};
   };
   await runImport(db,'owner','check',1);
-  assert.equal(records.get(path).status,['non_food','unknown','research-failed'].includes(mode)?'skipped':'ready',mode);
+  assert.equal(records.get(path).status,['omitted-action','unreviewed-source'].includes(mode)?'failed':['non_food','unknown','research-failed'].includes(mode)?'skipped':'ready',mode);
   if(mode==='unknown')assert.equal(records.get(path).failurePoint,'Food classification after source retrieval and research');
   if(mode==='research-failed')assert.equal(records.get(path).failurePoint,'Recipe normalization from written evidence, transcript, and translation');
   const prefix=mode==='html'?['metadata-error','html-transcript','scope']:['metadata+transcript','scope'];
   const suffix=mode==='non_food'?[]:mode==='unknown'?['media','scope','research','scope']:mode==='visual'?['media','scope','linked','extract','extract']:mode==='speech'?['media','transcribe','scope','translate','linked','extract','extract']:mode==='research'?['media','translate','linked','extract','research','extract','extract']:mode==='research-failed'?['media','translate','linked','extract','research']:['media','translate','linked','extract','extract'];
   assert.deepEqual(events,[...prefix,...suffix],mode);
   const saved=records.get('users/owner/cookbook/check');
-  assert.equal(!!saved,!['non_food','unknown','research-failed'].includes(mode));
+  assert.equal(!!saved,!['non_food','unknown','research-failed','omitted-action','unreviewed-source'].includes(mode));
+  if(mode==='omitted-action') {
+    assert.match(records.get(path).extractionReason,/omitted.*source actions/);
+    assert.equal(records.get(path).sourcePlan.actions[0].id,'rest','Failed normalization must retain the independent source record for diagnosis.');
+    assert.ok(records.get(path).sourceRunID);
+    assert.equal([...records.keys()].some(key=>key.startsWith('sharedRecipes/')),false,'Incomplete recipes must not enter the shared cache.');
+  } else if(mode==='unreviewed-source') {
+    assert.match(records.get(path).extractionReason,/did not review all source passages/);
+    assert.equal([...records.keys()].some(key=>key.startsWith('sharedRecipes/')),false);
+  } else if(saved) {
+    const cache=[...records].find(([key])=>key.startsWith('sharedRecipes/'))[1];
+    assert.deepEqual(cache.debug.sourcePlan,records.get(path).sourcePlan);
+    assert.deepEqual(cache.debug.sourcePassageIDs,records.get(path).sourcePassageIDs);
+    assert.deepEqual(cache.debug.sourceReview,records.get(path).sourceReview);
+    if(mode==='stale-cache')assert.notEqual(records.get(staleCache).payload,'invalid cached recipe');
+  }
 }
 ` ,stdio:'pipe'});
 });

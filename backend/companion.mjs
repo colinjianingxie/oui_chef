@@ -2,14 +2,14 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { importInput, readPage, readSocial, safeFetch, retrievalError, descriptionLinks } from './import-source.mjs';
-import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, inspectYouTube, answerQuestion, validateRecipe } from './recipe-agent.mjs';
+import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, inspectYouTube, answerQuestion, validateRecipe, validateSourceCoverage, validateSourceReview } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
 const importDay = () => new Date().toISOString().slice(0,10);
-const sharedRecipeID = (url,text,profile) => url && !text ? createHash('sha256').update(`companion-9\0${url}\0${profile}`).digest('hex') : null;
+const sharedRecipeID = (url,text,profile) => url && !text ? createHash('sha256').update(`companion-13\0${url}\0${profile}`).digest('hex') : null;
 const activeImport = (limit,id,attempt) => limit?.activeID===id && limit?.activeAttempt===attempt;
-const importDebug = data => Object.fromEntries(['sourceTitle','previewCreator','sourceDurationSeconds','sourceExtractor','sourceText','originalTranscript','transcriptLanguage','translatedTranscript','translationLanguage','videoObservations','frameSeconds','retrieval','retrievalErrors','scope','scopeReason','recipeTitle','previewSummary','previewIngredients','previewSteps','extractionReason','failurePoint'].filter(key=>data[key]!==undefined).map(key=>[key,data[key]]));
+const importDebug = data => Object.fromEntries(['sourceTitle','previewCreator','sourceDurationSeconds','sourceExtractor','sourceText','originalTranscript','transcriptLanguage','translatedTranscript','translationLanguage','videoObservations','frameSeconds','retrieval','retrievalErrors','scope','scopeReason','recipeTitle','previewSummary','previewIngredients','previewSteps','sourcePlan','sourceRunID','sourcePassageIDs','sourceReview','extractionReason','failurePoint'].filter(key=>data[key]!==undefined).map(key=>[key,data[key]]));
 async function releaseImport(db,uid,id,attempt) {
   const ref=db.doc(`importLimits/${uid}`);
   await db.runTransaction(async tx=>{const doc=await tx.get(ref);if(activeImport(doc.data(),id,attempt))tx.set(ref,{day:doc.data().day,count:doc.data().count});});
@@ -150,6 +150,7 @@ export async function runImport(db,uid,id,attempt) {
       sourceDurationSeconds:Number.isFinite(evidence.duration)?evidence.duration:null,
       frameSeconds:evidence.images.map(frame=>frame.second).filter(Number.isFinite),retrieval,retrievalErrors:[...new Set(retrievalErrors)]
     });
+    const extract=()=>extractRecipe(db,uid,id,evidence,profile,source=>progress('extracting','Building the ingredients and cooking steps…',3,source));
     if(scope.scope!=='non_food' && claimed.url && (claimed.source!=='Website' || scope.scope==='unknown')) {
       await collectMedia();
       if(scope.scope==='unknown' && (evidence.transcript || evidence.images.length || evidence.videoObservations)) scope=await classifySource(db,uid,id,evidence);
@@ -171,21 +172,21 @@ export async function runImport(db,uid,id,attempt) {
       }
       await evidenceProgress();
       await progress('extracting','Building the ingredients and cooking steps…',3);
-      result=await extractRecipe(db,uid,id,evidence,profile);
+      result=await extract();
       await ref.update(extractionPreview(result.recipe,evidence.videoObservations?'Recipe normalization from native video evidence and original speech':evidence.images.length?'Recipe normalization from written evidence, transcript, translation, and source images':evidence.transcriptTranslation?'Recipe normalization from written evidence, transcript, and translation':evidence.transcript?'Recipe normalization from written evidence and original transcript':'Recipe normalization from written evidence'));
       if(result.recipe.outcome==='insufficient' && claimed.url && !evidence.mediaAttempted) {
         await collectMedia();
         await translate();
         await evidenceProgress();
         await progress('extracting','Building the recipe from the page and its video…',3);
-        result=await extractRecipe(db,uid,id,evidence,profile);
+        result=await extract();
         await ref.update(extractionPreview(result.recipe,'Recipe normalization after page video inspection'));
       }
       if(result.recipe.outcome==='insufficient' && claimed.url) {
         await progress('extracting','Searching for recipe evidence matching this source…',3,{extractionReason:result.recipe.reason});
         if(!evidence.writtenResearch) await research();
         if(evidence.writtenResearch) {
-          result=await extractRecipe(db,uid,id,evidence,profile);
+          result=await extract();
           await ref.update(extractionPreview(result.recipe,'Recipe normalization after original-recipe research'));
         }
       }
@@ -203,21 +204,22 @@ export async function runImport(db,uid,id,attempt) {
     await progress('checking','Saving your recipe and finishing its details…',4,{
       previewTitle:result.recipe.title,previewSummary:result.recipe.summary??null,
       previewIngredients:result.recipe.ingredients.map(item=>`${item.quantity} ${item.name}`),
-      previewSteps:result.recipe.steps.map(step=>step.title||step.instruction),extractionRunID:result.runID
+      previewSteps:result.recipe.steps.map(step=>step.title||step.instruction),extractionRunID:result.runID,sourceRunID:result.sourceRunID,sourcePlan:result.sourcePlan
     });
     const {outcome,reason,...content}=result.recipe;
     let imagePath=null;
     if(evidence.imageURL){try {const image=await safeFetch(new URL(evidence.imageURL,claimed.url).href,2_000_000);if(/^image\/(jpeg|png|webp)/.test(image.headers['content-type']??'')){const path=`users/${uid}/recipeMedia/${id}/cover-${attempt}`;await getStorage().bucket().file(path).save(image.bytes,{metadata:{contentType:image.headers['content-type']}});imagePath=path;}}catch{/* The recipe remains usable without artwork. */}}
     const recipe={...content,imagePath,id,sourceURL:claimed.url,sourceName:claimed.source,imageURL:typeof evidence.imageURL==='string'&&evidence.imageURL.startsWith('https://')?evidence.imageURL:null,modelRunID:result.runID,favorite:false,reviewed:false,createdAt:Date.now(),version:1};
     if(claimed.source==='YouTube' && !evidence.transcript && !evidence.videoObservations && !retrieval.frameCount) recipe.warnings=[...new Set([...(recipe.warnings??[]),'Video speech and actions could not be checked; this recipe uses written source material.'])];
-    validateRecipe(recipe);
+    validateSourceCoverage(recipe,result.sourcePlan);
+    validateSourceReview(recipe,result.sourcePassageIDs,result.sourceReview);
     const payload=JSON.stringify(recipe),sharedID=sharedRecipeID(claimed.url,claimed.text,profilePayload),sharedRef=sharedID?db.doc(`sharedRecipes/${sharedID}`):null,limitRef=db.doc(`importLimits/${uid}`);
     const saved=await db.runTransaction(async tx=>{
-      const [state,deleted,limit,cached]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`)),tx.get(limitRef),sharedRef?tx.get(sharedRef):null]);if(deleted.exists||!state.exists||state.data()?.status==='canceled'||state.data()?.attempt!==attempt)return;
+      const [state,deleted,limit]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`)),tx.get(limitRef)]);if(deleted.exists||!state.exists||state.data()?.status==='canceled'||state.data()?.attempt!==attempt)return;
       if(state.data()?.free && !activeImport(limit.data(),id,attempt)){tx.update(ref,{status:'failed',message:'This import expired. Please try again.'});return;}
       const recipeRef=db.doc(`users/${uid}/cookbook/${id}`);
       tx.set(recipeRef,{id,payload,updatedAt:Date.now()});
-      if(sharedRef&&!cached?.exists)tx.set(sharedRef,{sourceURL:claimed.url,profileHash:createHash('sha256').update(profilePayload).digest('hex'),payload:JSON.stringify({...recipe,imagePath:null}),debug:importDebug(state.data()),createdAt:Date.now()});
+      if(sharedRef)tx.set(sharedRef,{sourceURL:claimed.url,profileHash:createHash('sha256').update(profilePayload).digest('hex'),payload:JSON.stringify({...recipe,imagePath:null}),debug:importDebug(state.data()),createdAt:Date.now()});
       if(activeImport(limit.data(),id,attempt))tx.set(limitRef,{day:importDay(),count:(limit.data()?.day===importDay()?limit.data()?.count??0:0)+1});
       tx.update(ref,{status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,previewTitle:recipe.title,updatedAt:Date.now(),finishedAt:Date.now(),sharedID});
       return true;
@@ -255,9 +257,17 @@ export async function handleCompanion(req,res,{db,auth}) {
         if(!admin && limit.data()?.activeID && Date.now()-(limit.data()?.activeAt??0)<1200000)throw new Error('Finish your current recipe import first.');
         // Cleared history must not reuse a Cloud Tasks name or match an old worker.
         const attempt=(old?.attempt??Date.now())+1;
+        let reusableRecipe;
         if(cached?.exists) {
-          const recipe={...JSON.parse(cached.data().payload),id,imagePath:null,favorite:false,reviewed:false,createdAt:Date.now()};
-          validateRecipe(recipe);
+          try {
+            const {sourcePlan,sourcePassageIDs,sourceReview}=cached.data().debug??{};
+            const candidate=validateSourceCoverage(JSON.parse(cached.data().payload),sourcePlan);
+            reusableRecipe=validateSourceReview(candidate,sourcePassageIDs,sourceReview);
+          }
+          catch { /* Reparse a cache entry that cannot prove coverage of its source record. */ }
+        }
+        if(reusableRecipe) {
+          const recipe={...reusableRecipe,id,imagePath:null,favorite:false,reviewed:false,createdAt:Date.now()};
           tx.set(db.doc(`users/${uid}/cookbook/${id}`),{id,payload:JSON.stringify(recipe),updatedAt:Date.now()});
           tx.set(ref,{...cached.data().debug,id,url,source,status:'ready',stage:5,message:'Your recipe is ready.',recipeID:id,previewTitle:recipe.title,createdAt:Date.now(),updatedAt:Date.now(),finishedAt:Date.now(),attempt,sharedID,cacheHit:true});
           if(!admin)tx.set(limitRef,{day:today,count:used+1});

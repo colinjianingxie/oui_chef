@@ -29,9 +29,16 @@ struct CompanionRecipe: Codable, Identifiable, Equatable {
     var version = 1
 
     var timeLabel: String { totalMinutes.map { $0 >= 60 ? "\($0 / 60) hr\($0 % 60 == 0 ? "" : " \($0 % 60) min")" : "\($0) min" } ?? "Go by the cues" }
-    var youtubeThumbnailURL: URL? {
-        guard sourceName == "YouTube", let source = URLComponents(string: sourceURL), source.host == "www.youtube.com",
-              let id = source.queryItems?.first(where: { $0.name == "v" })?.value,
+    var youtubeThumbnailURL: URL? { Self.youtubeThumbnailURL(for: sourceURL) }
+    static func youtubeThumbnailURL(for sourceURL: String) -> URL? {
+        guard let source = URLComponents(string: sourceURL), ["http", "https"].contains(source.scheme ?? "") else { return nil }
+        let host = source.host?.lowercased(), parts = source.path.split(separator: "/")
+        let id: String?
+        if host == "youtu.be" { id = parts.first.map(String.init) }
+        else if ["youtube.com", "www.youtube.com", "m.youtube.com"].contains(host ?? "") {
+            id = source.path == "/watch" ? source.queryItems?.first(where: { $0.name == "v" })?.value : parts.count == 2 && parts[0] == "shorts" ? String(parts[1]) : nil
+        } else { return nil }
+        guard let id,
               id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else { return nil }
         return URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
     }
@@ -126,6 +133,7 @@ struct RecipeImport: Codable, Identifiable, Equatable {
     var retrievalErrors: [String]?
     var scopeReason: String?
     var cacheHit: Bool?
+    var youtubeThumbnailURL: URL? { CompanionRecipe.youtubeThumbnailURL(for: url) }
     var running: Bool { ["queued", "fetching", "transcribing", "extracting", "checking"].contains(status) }
     var hasImportEvidence: Bool { sourceTitle != nil || sourceText != nil || retrieval != nil || recipeTitle != nil || originalTranscript != nil || translatedTranscript != nil || videoObservations != nil || previewIngredients != nil || failurePoint != nil }
     static let stages = ["Read metadata & transcript", "Check for a food recipe", "Translate & inspect video", "Build ingredients & steps", "Save to your cookbook"]
@@ -165,8 +173,10 @@ struct AttemptTimer: Codable, Identifiable, Equatable {
     var deadline: Double
     var pausedSeconds: Double?
     var acknowledged = false
+    var additional: Bool?
     func remaining(at now: Double) -> Double { max(0, pausedSeconds ?? ((deadline - now) / 1000)) }
     func expired(at now: Double) -> Bool { pausedSeconds == nil && now >= deadline && !acknowledged }
+    func status(at now: Double) -> String { acknowledged ? "dismissed" : pausedSeconds != nil ? "paused" : expired(at: now) ? "expired" : "running" }
 }
 
 struct CookAttempt: Codable, Identifiable, Equatable {
@@ -211,6 +221,9 @@ struct CookAttempt: Codable, Identifiable, Equatable {
             } else {
                 guard !completed.contains(target), !skipped.contains(target) else { return }
                 if action.operation == "complete_step" { completed.append(target) } else { skipped.append(target) }
+                for index in timers.indices where timers[index].stepID == target && timers[index].expired(at: now) {
+                    timers[index].acknowledged = true
+                }
                 if let next = recipe.steps.indices.first(where: { !completed.contains(recipe.steps[$0].id) && !skipped.contains(recipe.steps[$0].id) }) { focusIndex = next }
             }
             detail = step.title
@@ -218,9 +231,12 @@ struct CookAttempt: Codable, Identifiable, Equatable {
             guard let index = recipe.steps.firstIndex(where: { $0.id == target }) else { throw CookingError.invalid("Choose a recipe step.") }
             focusIndex = index
         case "start_timer":
-            guard let step, let seconds = action.seconds ?? step.durationSeconds, seconds.isFinite, (1...604800).contains(seconds), timers.filter({ !$0.acknowledged }).count < 20 else { throw CookingError.invalid("Choose a timer between one second and seven days (up to 20 active timers).") }
+            guard let step, let seconds = action.seconds ?? step.durationSeconds, seconds.isFinite, (1...604800).contains(seconds) else { throw CookingError.invalid("Choose a timer between one second and seven days.") }
+            // Repeated taps or voice requests keep the same step timer and deadline.
+            if action.additional != true && timers.contains(where: { $0.stepID == step.id && !$0.acknowledged && $0.additional != true }) { return }
+            guard timers.filter({ !$0.acknowledged }).count < 20 else { throw CookingError.invalid("Up to 20 timers can be active at once.") }
             timers.append(AttemptTimer(id: action.id, stepID: step.id, label: action.text?.isEmpty == false ? action.text! : step.title,
-                cue: step.visualCue ?? "Check whether this step is ready.", startedAt: now, deadline: now + seconds * 1000))
+                cue: step.visualCue ?? "Check whether this step is ready.", startedAt: now, deadline: now + seconds * 1000, additional: action.additional))
             detail = "\(step.title): \(Int(seconds)) seconds"
         case "pause_timer", "resume_timer", "extend_timer", "cancel_timer", "acknowledge_timer":
             guard let index = timers.firstIndex(where: { $0.id == target && !$0.acknowledged }) else { throw CookingError.invalid("Choose an active timer.") }
@@ -261,6 +277,7 @@ struct CookAction: Codable {
     var target: String?
     var seconds: Double?
     var text: String?
+    var additional: Bool?
 }
 
 enum CompanionJSON {

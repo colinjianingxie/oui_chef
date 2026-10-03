@@ -1,6 +1,52 @@
 import XCTest
 
 final class CompanionFlowTests: XCTestCase {
+    func testSelectAllIncludesPantryAndAllowsIndividualChanges() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
+        XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 10))
+        app.buttons["recipe-preview-pasta"].tap(); app.buttons["Start cooking"].tap()
+        let all = app.buttons["select-all-ingredients"]
+        XCTAssertTrue(all.waitForExistence(timeout: 5)); all.tap()
+        XCTAssertEqual(app.buttons["ingredient-check-pasta"].value as? String, "Selected")
+        app.buttons["ingredient-check-garlic"].tap()
+        XCTAssertEqual(app.buttons["ingredient-check-garlic"].value as? String, "Not selected")
+        XCTAssertEqual(all.label, "Select all ingredients"); all.tap()
+        let pantry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Pantry basics")).firstMatch
+        for _ in 0..<3 where !pantry.isHittable { app.swipeUp() }
+        pantry.tap()
+        XCTAssertEqual(app.buttons["ingredient-check-oil"].value as? String, "Selected")
+        for _ in 0..<3 where !all.isHittable { app.swipeDown() }
+        all.tap()
+        XCTAssertEqual(app.buttons["ingredient-check-pasta"].value as? String, "Not selected")
+        XCTAssertTrue(app.buttons["Let’s cook"].isEnabled)
+        capture("Select all ingredients", app)
+    }
+
+    func testEveryFoldRestCountsDownAndExpiredTimersClearOnCompletion() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-timer-rounds"]; app.launch()
+        XCTAssertTrue(app.buttons["recipe-preview-focaccia"].waitForExistence(timeout: 10))
+        app.buttons["recipe-preview-focaccia"].tap(); app.buttons["Start cooking"].tap(); app.buttons["Let’s cook"].tap()
+        for round in 0...4 {
+            let start = app.buttons["start-step-timer"]
+            for _ in 0..<3 where !start.isHittable { app.swipeUp() }
+            XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
+            XCTAssertFalse(start.exists, "Starting a suggested timer removes its duplicate start control.")
+            let countdown = app.staticTexts["timer-remaining-rest\(round)"]
+            XCTAssertTrue(countdown.waitForExistence(timeout: 3))
+            let ticking = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label MATCHES %@", "0:0[1-7]"), object: countdown)
+            XCTAssertEqual(XCTWaiter.wait(for: [ticking], timeout: 5), .completed)
+            XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "timer-remaining-")).count, 1)
+            let expired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Time to check"), object: countdown)
+            XCTAssertEqual(XCTWaiter.wait(for: [expired], timeout: 10), .completed)
+            capture("Rest \(round) finished", app)
+            app.buttons["complete-step"].tap()
+            XCTAssertFalse(countdown.exists)
+            if round < 4 { app.buttons["complete-step"].tap() }
+        }
+        XCTAssertEqual(app.buttons["complete-step"].label, "Finish cooking")
+    }
     func testDeleteRecipeRequiresConfirmationAndKeepsCookingHistory() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
@@ -41,11 +87,14 @@ final class CompanionFlowTests: XCTestCase {
         if !app.buttons["Close"].waitForExistence(timeout: 2) { tile.tap() }
         XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Check for a food recipe"].exists)
-        XCTAssertTrue(app.staticTexts["Import evidence"].exists)
+        XCTAssertTrue(app.staticTexts["Import debug details"].exists)
         XCTAssertTrue(app.staticTexts["Last incomplete stage"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["original-transcript"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["translated-transcript"].exists)
         XCTAssertTrue(app.staticTexts["Ingredients"].exists)
+        let thumbnails = app.images.matching(NSPredicate(format: "label == %@", "Recipe thumbnail"))
+        XCTAssertTrue(thumbnails.firstMatch.exists, "A thumbnail is available while extraction is still running.")
+        for _ in 0..<6 where !app.staticTexts["Ingredients"].isHittable { app.swipeUp() }
         XCTAssertFalse(app.buttons["make-recipe"].exists)
         capture("Import progress and recipe placeholders", app)
         app.buttons["Close"].tap(); app.buttons["tab-Cookbook"].tap()

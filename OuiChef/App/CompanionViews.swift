@@ -5,6 +5,7 @@ import AVFoundation
 import SafariServices
 import FirebaseStorage
 import FirebaseAuth
+import ImageIO
 
 struct CompanionRootView: View {
     @State private var store = CompanionStore()
@@ -333,24 +334,48 @@ struct CompanionHome: View {
     }
 }
 
-struct RecipePhoto: View {
+@MainActor struct RecipePhoto: View {
     let recipe: CompanionRecipe
     @State private var downloaded: UIImage?
-    @State private var useSourceThumbnail = false
+    private static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>(); cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+    private var imageKey: String { "\(Auth.auth().currentUser?.uid ?? "")|\(recipe.id)|\(recipe.imagePath ?? "")|\(recipe.youtubeThumbnailURL?.absoluteString ?? "")" }
     var body: some View {
         GeometryReader { geometry in
             Group {
                 if recipe.id == "preview-pasta" { Image("WelcomeFood").resizable().scaledToFill() }
-                else if let downloaded { Image(uiImage: downloaded).resizable().scaledToFill() }
-                else if useSourceThumbnail, let url = recipe.youtubeThumbnailURL {
-                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { placeholder }
-                } else { placeholder }
+                else if let downloaded { Image(uiImage: downloaded).resizable().scaledToFill().accessibilityIdentifier("recipe-photo-loaded") }
+                else { placeholder }
             }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
-        }.accessibilityLabel(recipe.title).task(id: recipe.imagePath) {
-            guard let uid = Auth.auth().currentUser?.uid, let path = recipe.imagePath, path.hasPrefix("users/\(uid)/recipeMedia/\(recipe.id)/cover-") else { useSourceThumbnail = true; return }
-            if let data = try? await Storage.storage().reference().child(path).data(maxSize: 2_000_000), Auth.auth().currentUser?.uid == uid, let image = UIImage(data: data) { downloaded = image }
-            else { useSourceThumbnail = true }
+        }.accessibilityLabel(recipe.title).task(id: imageKey) {
+            let key = imageKey as NSString
+            downloaded = Self.images.object(forKey: key)
+            guard downloaded == nil, recipe.id != "preview-pasta" else { return }
+            // Public YouTube thumbnails do not need a Firebase download or its retries.
+            if let url = recipe.youtubeThumbnailURL {
+                let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 8)
+                if let (data, response) = try? await URLSession.shared.data(for: request),
+                   (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 2_000_000,
+                   let image = Self.thumbnail(data), !Task.isCancelled {
+                    Self.images.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height) * 4)
+                    downloaded = image; return
+                }
+            }
+            guard !Task.isCancelled, let uid = Auth.auth().currentUser?.uid, let path = recipe.imagePath,
+                  path.hasPrefix("users/\(uid)/recipeMedia/\(recipe.id)/cover-") else { return }
+            if let data = try? await Storage.storage().reference().child(path).data(maxSize: 2_000_000),
+               Auth.auth().currentUser?.uid == uid, !Task.isCancelled, let image = Self.thumbnail(data) {
+                Self.images.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height) * 4)
+                downloaded = image
+            }
         }
+    }
+    private static func thumbnail(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 960, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
     }
     private var placeholder: some View {
         ZStack { Theme.sage; Image(systemName: "fork.knife").font(.system(size: 42, weight: .ultraLight)).foregroundStyle(Theme.green.opacity(0.6)) }
@@ -372,7 +397,12 @@ private struct ImportRecipePreview: View {
     var compact = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if compact {
+            if let url = item.youtubeThumbnailURL {
+                GeometryReader { geometry in
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped() }
+                    placeholder: { ZStack { Theme.sage.opacity(0.6); if item.running { ProgressView() } } }
+                }.frame(height: compact ? 155 : 200).clipShape(RoundedRectangle(cornerRadius: 17)).accessibilityLabel("Recipe thumbnail")
+            } else if compact {
                 RoundedRectangle(cornerRadius: 17).fill(Theme.sage.opacity(0.6)).frame(height: 155)
                     .overlay { if item.running { ProgressView() } else { Image(systemName: "info.circle").foregroundStyle(Theme.green) } }
                     .accessibilityHidden(true)
@@ -586,7 +616,11 @@ struct CompanionRecipeView: View {
                     if preparation {
                         Text("Let’s get ready.").font(Theme.serif(37)).padding(.top, 15)
                         Text("Gather the key ingredients. Check off what you have, or go straight to cooking.").font(.subheadline).foregroundStyle(.secondary)
+                        Button(checked.count == recipe.ingredients.count ? "Deselect all ingredients" : "Select all ingredients") {
+                            checked = checked.count == recipe.ingredients.count ? [] : Set(recipe.ingredients.map(\.id))
+                        }.font(.subheadline.weight(.semibold)).frame(minHeight: 44).accessibilityIdentifier("select-all-ingredients")
                         ingredientList(recipe.ingredients.filter { !$0.pantry })
+                        if recipe.ingredients.contains(where: \.pantry) { DisclosureGroup("Pantry basics (\(recipe.ingredients.filter(\.pantry).count))") { ingredientList(recipe.ingredients.filter(\.pantry)).padding(.top, 12) }.font(.subheadline) }
                         if !recipe.preparation.isEmpty { preparationList }
                     } else {
                         RecipePhoto(recipe: recipe).frame(height: 265).clipShape(RoundedRectangle(cornerRadius: 25))
@@ -610,18 +644,16 @@ struct CompanionRecipeView: View {
                             if !recipe.preparation.isEmpty { preparationList }
                             if !recipe.equipment.isEmpty { DisclosureGroup("Equipment · optional") { Text(recipe.equipment.joined(separator: ", ")).font(.subheadline).padding(.vertical, 10) } }
                         } else if tab == "Steps" {
-                            ForEach(recipe.stages, id: \.self) { stage in
+                            ForEach(Array(recipe.steps.enumerated()), id: \.element.id) { index, step in
                                 VStack(alignment: .leading, spacing: 17) {
-                                    Text(stage).font(Theme.serif(25))
-                                    ForEach(recipe.steps.filter { $0.stage == stage }) { step in
-                                        VStack(alignment: .leading, spacing: 9) {
-                                            Text("\((recipe.steps.firstIndex(of: step) ?? 0) + 1). \(step.title)").font(.headline)
-                                            Text(step.instruction).font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
-                                            if let cue = step.visualCue { Label(cue, systemImage: "eye").font(.caption).foregroundStyle(Theme.green) }
-                                            if let duration = step.durationSeconds { Label("\(Int(duration / 60)) min\(step.timingEstimated ? " · estimated" : "")", systemImage: "timer").font(.caption) }
-                                            if let temperature = step.temperature { Label(temperature, systemImage: "thermometer.medium").font(.caption) }
-                                        }.padding(.bottom, 6)
-                                    }
+                                    if index == 0 || recipe.steps[index - 1].stage != step.stage { Text(step.stage).font(Theme.serif(25)) }
+                                    VStack(alignment: .leading, spacing: 9) {
+                                        Text("\(index + 1). \(step.title)").font(.headline)
+                                        Text(step.instruction).font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
+                                        if let cue = step.visualCue { Label(cue, systemImage: "eye").font(.caption).foregroundStyle(Theme.green) }
+                                        if let duration = step.durationSeconds { Label("\(Int(duration / 60)) min\(step.timingEstimated ? " · estimated" : "")", systemImage: "timer").font(.caption) }
+                                        if let temperature = step.temperature { Label(temperature, systemImage: "thermometer.medium").font(.caption) }
+                                    }.padding(.bottom, 6)
                                 }
                             }
                         } else { notes }
@@ -670,7 +702,7 @@ struct CompanionRecipeView: View {
                     Image(systemName: ingredientSymbol(item.name)).font(.system(size: 25, weight: .light)).foregroundStyle(Theme.green).frame(width: 42, height: 42).background(Theme.sage.opacity(0.6), in: Circle()).accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 5) { Text(item.name).font(.subheadline.weight(.medium)); Text(item.quantity + (item.optional ? " · optional" : "")).font(.caption).foregroundStyle(.secondary); if item.component != "Main" { Text(item.component).font(.caption2).foregroundStyle(Theme.green) }; if item.origin == "inferred" { Text("Estimated").font(.caption2).foregroundStyle(Theme.green) } }
                     Spacer()
-                    if preparation { Button { if checked.contains(item.id) { checked.remove(item.id) } else { checked.insert(item.id) } } label: { Image(systemName: checked.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(Theme.green).frame(width: 44, height: 44) }.accessibilityLabel("\(checked.contains(item.id) ? "Uncheck" : "Check") \(item.name)") }
+                    if preparation { Button { if checked.contains(item.id) { checked.remove(item.id) } else { checked.insert(item.id) } } label: { Image(systemName: checked.contains(item.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(Theme.green).frame(width: 44, height: 44) }.accessibilityLabel("\(checked.contains(item.id) ? "Uncheck" : "Check") \(item.name)").accessibilityValue(checked.contains(item.id) ? "Selected" : "Not selected").accessibilityIdentifier("ingredient-check-\(item.id)") }
                 }
             }
         }
@@ -716,7 +748,7 @@ struct CompanionCookingView: View {
         .sheet(isPresented: $timerEntry) {
             CookingTextEntry(title: "Set a timer", hint: "Minutes", message: "This timer will stay with the current step.", actionTitle: "Start timer", keyboard: .decimalPad, text: $timerMinutes) {
                 guard let minutes = Double(timerMinutes.replacingOccurrences(of: ",", with: ".")), minutes.isFinite, (1...604800).contains(minutes * 60) else { return "Choose a duration from one second to seven days." }
-                store.act("start_timer", seconds: minutes * 60)
+                store.act("start_timer", seconds: minutes * 60, additional: true)
                 Task { await store.enableNotifications() }
                 return nil
             }
@@ -761,10 +793,12 @@ struct CompanionCookingView: View {
                             }
                         }
                     }
-                    if let seconds = attempt.currentStep.durationSeconds {
-                        Button { store.act("start_timer", seconds: seconds); Task { await store.enableNotifications() } } label: { Label("Start \(Int(seconds / 60))m \(Int(seconds) % 60)s timer\(attempt.currentStep.timingEstimated ? " · estimated" : "")", systemImage: "timer").font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16)) }
+                    if let seconds = attempt.currentStep.durationSeconds, !attempt.timers.contains(where: { $0.stepID == attempt.currentStep.id && !$0.acknowledged && $0.additional != true }) {
+                        Button { store.act("start_timer", target: attempt.currentStep.id, seconds: seconds); Task { await store.enableNotifications() } } label: { Label("Start \(Int(seconds / 60))m \(Int(seconds) % 60)s timer\(attempt.currentStep.timingEstimated ? " · estimated" : "")", systemImage: "timer").font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 16)) }.accessibilityIdentifier("start-step-timer")
                     }
-                    ForEach(attempt.timers.filter { !$0.acknowledged }) { timer in timerCard(timer) }
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        ForEach(attempt.timers.filter { !$0.acknowledged }) { timer in timerCard(timer, now: context.date.timeIntervalSince1970 * 1000) }
+                    }
                     HStack {
                         Button { timerEntry = true } label: { Label("Add timer", systemImage: "plus.circle") }
                         Spacer()
@@ -797,22 +831,19 @@ struct CompanionCookingView: View {
             }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 8).background(Theme.cream)
         }
     }
-    private func timerCard(_ timer: AttemptTimer) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let now = context.date.timeIntervalSince1970 * 1000
-            let seconds = Int(ceil(timer.remaining(at: now)))
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    Image(systemName: timer.expired(at: now) ? "bell.badge" : "timer").foregroundStyle(Theme.green)
-                    VStack(alignment: .leading, spacing: 4) { Text(timer.label).font(.caption); Text(timer.expired(at: now) ? "Time to check" : String(format: "%d:%02d", seconds / 60, seconds % 60)).font(Theme.serif(28)).monospacedDigit() }
-                    Spacer()
-                    Button { store.act(timer.pausedSeconds == nil ? "pause_timer" : "resume_timer", target: timer.id) } label: { Image(systemName: timer.pausedSeconds == nil ? "pause.fill" : "play.fill").frame(width: 44, height: 44).background(Theme.sage, in: Circle()) }.accessibilityLabel(timer.pausedSeconds == nil ? "Pause \(timer.label)" : "Resume \(timer.label)")
-                    Menu { Button("Add 3 minutes") { store.act("extend_timer", target: timer.id, seconds: 180) }; Button("Dismiss timer") { store.act("cancel_timer", target: timer.id) } } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44) }.accessibilityLabel("Timer options")
-                }
-                if timer.expired(at: now) { Text(timer.cue).font(.subheadline); Button("Checked") { store.act("acknowledge_timer", target: timer.id) }.font(.caption.weight(.semibold)) }
-                else if timer.pausedSeconds != nil { Text("Paused").font(.caption).foregroundStyle(.secondary) }
-            }.padding(17).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.green.opacity(timer.expired(at: now) ? 0.5 : 0.12)))
-        }
+    private func timerCard(_ timer: AttemptTimer, now: Double) -> some View {
+        let seconds = Int(ceil(timer.remaining(at: now)))
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: timer.expired(at: now) ? "bell.badge" : "timer").foregroundStyle(Theme.green)
+                VStack(alignment: .leading, spacing: 4) { Text(timer.label).font(.caption); Text(timer.expired(at: now) ? "Time to check" : String(format: "%d:%02d", seconds / 60, seconds % 60)).font(Theme.serif(28)).monospacedDigit().accessibilityIdentifier("timer-remaining-\(timer.stepID)") }
+                Spacer()
+                if !timer.expired(at: now) { Button { store.act(timer.pausedSeconds == nil ? "pause_timer" : "resume_timer", target: timer.id) } label: { Image(systemName: timer.pausedSeconds == nil ? "pause.fill" : "play.fill").frame(width: 44, height: 44).background(Theme.sage, in: Circle()) }.accessibilityLabel(timer.pausedSeconds == nil ? "Pause \(timer.label)" : "Resume \(timer.label)") }
+                Menu { Button("Add 3 minutes") { store.act("extend_timer", target: timer.id, seconds: 180) }; Button("Dismiss timer") { store.act("cancel_timer", target: timer.id) } } label: { Image(systemName: "ellipsis").frame(width: 36, height: 44) }.accessibilityLabel("Timer options")
+            }
+            if timer.expired(at: now) { Text(timer.cue).font(.subheadline); Button("Checked") { store.act("acknowledge_timer", target: timer.id) }.font(.caption.weight(.semibold)) }
+            else if timer.pausedSeconds != nil { Text("Paused").font(.caption).foregroundStyle(.secondary) }
+        }.padding(17).background(.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 18)).overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.green.opacity(timer.expired(at: now) ? 0.5 : 0.12)))
     }
     private var stepsSheet: some View {
         NavigationStack { ScrollView { if let attempt = store.active { VStack(alignment: .leading, spacing: 20) { Text(attempt.recipe.title).font(Theme.serif(29)); ForEach(attempt.recipe.steps) { step in Button { store.act("focus_step", target: step.id); showSteps = false } label: { HStack(alignment: .top, spacing: 13) { Image(systemName: attempt.completed.contains(step.id) ? "checkmark.circle.fill" : attempt.skipped.contains(step.id) ? "forward.circle" : "circle"); VStack(alignment: .leading, spacing: 6) { Text(step.title).font(.headline); Text(step.stage).font(.caption).foregroundStyle(.secondary) }; Spacer() }.padding(.vertical, 9) }.buttonStyle(.plain) } }.padding(25) } }.background(Theme.cream).toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showSteps = false } } } }

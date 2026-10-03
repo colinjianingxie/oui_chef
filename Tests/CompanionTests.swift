@@ -82,6 +82,13 @@ final class CompanionTests: XCTestCase {
         XCTAssertEqual(saved.youtubeThumbnailURL?.absoluteString, "https://i.ytimg.com/vi/W_-D8PZwtSY/hqdefault.jpg")
         saved.sourceURL = "https://www.youtube.com/watch?v=../../local"
         XCTAssertNil(saved.youtubeThumbnailURL)
+        for url in ["https://youtu.be/W_-D8PZwtSY?si=share", "https://youtube.com/shorts/W_-D8PZwtSY", "https://m.youtube.com/watch?v=W_-D8PZwtSY"] {
+            let job = RecipeImport(id: "pending", url: url, status: "queued", message: "", createdAt: 0, source: "Recipe link")
+            XCTAssertEqual(job.youtubeThumbnailURL?.absoluteString, "https://i.ytimg.com/vi/W_-D8PZwtSY/hqdefault.jpg", "Show the thumbnail before recipe extraction finishes.")
+        }
+        for url in ["https://youtube.com.evil.example/watch?v=W_-D8PZwtSY", "file://youtube.com/watch?v=W_-D8PZwtSY", "https://example.com/bread"] {
+            XCTAssertNil(CompanionRecipe.youtubeThumbnailURL(for: url))
+        }
     }
     func testMinimalRecipeAcceptsUnknownEquipmentAmountsAndTiming() throws {
         let recipe = recipe(); try recipe.validate()
@@ -123,5 +130,51 @@ final class CompanionTests: XCTestCase {
         try cook.apply(CookAction(operation: "finish", sessionID: cook.id, revision: cook.revision), at: 69000)
         XCTAssertEqual(cook.finishedAt, 69000)
         XCTAssertTrue(cook.timers.allSatisfy(\.acknowledged))
+    }
+
+    func testRepeatedRestsHaveIndependentCountdownsWithoutDuplicateTimers() throws {
+        var bread = recipe()
+        bread.steps = (0...4).map { RecipeStep(id: "rest\($0)", title: $0 == 0 ? "Initial rest" : "Rest after fold \($0)", instruction: "Cover and rest for 30 minutes.", stage: "Dough", durationSeconds: 1800) }
+        var cook = CookAttempt(recipe: bread)
+        for round in 0...4 {
+            let now = Double(round) * 1_801_000
+            let stepID = "rest\(round)"
+            try cook.apply(CookAction(operation: "start_timer", sessionID: cook.id, revision: cook.revision, target: stepID), at: now)
+            let timer = try XCTUnwrap(cook.timers.last)
+            try cook.apply(CookAction(operation: "start_timer", sessionID: cook.id, revision: cook.revision, target: stepID), at: now + 1000)
+            XCTAssertEqual(cook.timers.count, round + 1, "A second start must not create a duplicate or reset its deadline.")
+            XCTAssertEqual(cook.timers.last?.deadline, timer.deadline)
+            XCTAssertEqual(timer.remaining(at: now + 1000), 1799)
+            XCTAssertEqual(timer.status(at: now + 1000), "running")
+            cook = try CompanionJSON.decode(CookAttempt.self, CompanionJSON.encode(cook))
+            XCTAssertEqual(cook.timers.last?.remaining(at: now + 60_000), 1740)
+            XCTAssertEqual(timer.status(at: now + 1_800_000), "expired")
+            XCTAssertFalse(cook.completed.contains(stepID), "Expiry must not advance cooking.")
+            try cook.apply(CookAction(operation: "complete_step", sessionID: cook.id, revision: cook.revision, target: stepID), at: now + 1_800_000)
+            XCTAssertTrue(cook.timers.allSatisfy(\.acknowledged), "Completing a rest dismisses its expired timer.")
+        }
+        XCTAssertTrue(cook.allStepsFinished)
+    }
+
+    func testAdditionalTimersPauseRepeatAndOverlappingSteps() throws {
+        var cook = CookAttempt(recipe: recipe())
+        let start = CookAction(operation: "start_timer", sessionID: cook.id, revision: 0, seconds: 60)
+        try cook.apply(start, at: 0)
+        try cook.apply(CookAction(operation: "pause_timer", sessionID: cook.id, revision: cook.revision, target: start.id), at: 1000)
+        try cook.apply(CookAction(operation: "start_timer", sessionID: cook.id, revision: cook.revision), at: 2000)
+        XCTAssertEqual(cook.timers.count, 1)
+        XCTAssertEqual(cook.timers[0].status(at: 100_000), "paused")
+        XCTAssertEqual(cook.timers[0].remaining(at: 100_000), 59)
+        try cook.apply(CookAction(operation: "resume_timer", sessionID: cook.id, revision: cook.revision, target: start.id), at: 100_000)
+        XCTAssertEqual(cook.timers[0].remaining(at: 101_000), 58)
+        try cook.apply(CookAction(operation: "start_timer", sessionID: cook.id, revision: cook.revision, seconds: 120, additional: true), at: 101_000)
+        XCTAssertEqual(cook.timers.count, 2, "An explicit additional timer remains supported.")
+        try cook.apply(CookAction(operation: "complete_step", sessionID: cook.id, revision: cook.revision), at: 160_000)
+        XCTAssertTrue(cook.timers[0].acknowledged)
+        XCTAssertFalse(cook.timers[1].acknowledged, "Moving to another step preserves a timer that is still running.")
+        try cook.apply(CookAction(operation: "reopen_step", sessionID: cook.id, revision: cook.revision, target: "proof1"), at: 161_000)
+        try cook.apply(CookAction(operation: "start_timer", sessionID: cook.id, revision: cook.revision), at: 162_000)
+        XCTAssertEqual(cook.timers.count, 3)
+        XCTAssertEqual(cook.timers[2].remaining(at: 163_000), 59)
     }
 }

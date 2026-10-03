@@ -183,9 +183,9 @@ final class CompanionStore {
         } catch { self.error = error.localizedDescription }
     }
     func resume(_ id: String) { stopVoice(); archive.activeID = id; showCooking = true; lastAnswer = nil; persist() }
-    func act(_ operation: String, target: String? = nil, seconds: Double? = nil, text: String? = nil) {
+    func act(_ operation: String, target: String? = nil, seconds: Double? = nil, text: String? = nil, additional: Bool = false) {
         guard let active else { return }
-        do { try apply(CookAction(operation: operation, sessionID: active.id, revision: active.revision, target: target, seconds: seconds, text: text)) }
+        do { try apply(CookAction(operation: operation, sessionID: active.id, revision: active.revision, target: target, seconds: seconds, text: text, additional: additional)) }
         catch { self.error = error.localizedDescription }
     }
     private func apply(_ action: CookAction) throws {
@@ -371,7 +371,16 @@ final class CompanionStore {
         var context: [String: Any] = ["companionVersion": 2, "profile": (try? json(profile)) ?? [:]]
         if var attempt = active {
             attempt.messages = Array(attempt.messages.suffix(8)); attempt.events = Array(attempt.events.suffix(100))
-            context["session"] = (try? json(attempt)) ?? [:]
+            let now = Self.now
+            var session = (try? json(attempt)) as? [String: Any] ?? [:]
+            session["now"] = now
+            session["timers"] = attempt.timers.map { timer in
+                var value = (try? json(timer)) as? [String: Any] ?? [:]
+                value["remainingSeconds"] = timer.remaining(at: now)
+                value["status"] = timer.status(at: now)
+                return value
+            }
+            context["session"] = session
             context["history"] = historyContext(recipeID: attempt.recipe.id)
         }
         return context
@@ -461,6 +470,17 @@ final class CompanionStore {
             preparation: ["Peel and finely mince the garlic.", "Grate the parmesan."],
             steps: [RecipeStep(id: "boil", title: "Get the pasta going", instruction: "Bring a large pan of salted water to a boil. Add the pasta and cook according to the packet.", stage: "Cook the pasta", ingredients: [StepIngredient(ingredientID: "pasta", quantity: "225 g")], visualCue: "The pasta should be tender with a little bite."), RecipeStep(id: "garlic", title: "Sauté the garlic", instruction: "Warm the olive oil over medium heat. Add the garlic and stir gently until fragrant and just golden.", stage: "Make the sauce", ingredients: [StepIngredient(ingredientID: "garlic", quantity: "6 cloves, minced"), StepIngredient(ingredientID: "oil", quantity: "2 tbsp")], durationSeconds: 90, visualCue: "Lightly golden, not brown."), RecipeStep(id: "finish", title: "Bring it all together", instruction: "Add the cream, then stir in the parmesan and drained pasta. Loosen with a splash of pasta water if needed.", stage: "Finish & serve", ingredients: [StepIngredient(ingredientID: "cream", quantity: "1 cup"), StepIngredient(ingredientID: "parmesan", quantity: "½ cup")], visualCue: "A silky sauce that coats every strand.")], reviewed: true)
         archive.recipes = [recipe]
+        if ProcessInfo.processInfo.arguments.contains("--companion-timer-rounds") {
+            var bread = recipe
+            bread.id = "preview-focaccia"; bread.title = "Focaccia timer check"
+            bread.sourceName = "YouTube"; bread.sourceURL = "https://www.youtube.com/watch?v=O1WQTKuWWfM"
+            bread.steps = [RecipeStep(id: "rest0", title: "Initial rest", instruction: "Cover the mixed dough before the first fold.", stage: "Rest", durationSeconds: 8)]
+            for round in 1...4 {
+                bread.steps.append(RecipeStep(id: "fold\(round)", title: "Fold \(round)", instruction: "Stretch and fold all four sides.", stage: "Fold"))
+                bread.steps.append(RecipeStep(id: "rest\(round)", title: "Rest after fold \(round)", instruction: "Cover and rest before continuing.", stage: "Rest", durationSeconds: 8))
+            }
+            archive.recipes = [bread]
+        }
         if ProcessInfo.processInfo.arguments.contains("--companion-import-progress") {
             imports = [RecipeImport(id: "preview-import", url: "https://youtu.be/W_-D8PZwtSY", status: "extracting", message: "Completing the recipe while preserving its written instructions…", createdAt: Self.now, source: "YouTube", stage: 3, previewTitle: "Matcha Streusel Bread", previewCreator: "All Cooking Stuff", previewIngredients: ["415 g bread flour", "5 g matcha powder"], sourceTitle: "Matcha Streusel Bread", sourceDurationSeconds: 306, sourceExtractor: "YouTube", recipeTitle: "Matcha Streusel Bread", originalTranscript: "[58.6s] 第一步，准备面团。", transcriptLanguage: "zh-CN", translatedTranscript: "[58.6s] Step one: prepare the dough.", frameSeconds: [10, 30, 50], extractionReason: "The written description did not include all cooking steps.", failurePoint: "Written source")]
         } else if ProcessInfo.processInfo.arguments.contains("--companion-import-ready") {
