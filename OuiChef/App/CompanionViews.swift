@@ -5,6 +5,7 @@ import AVFoundation
 import SafariServices
 import FirebaseStorage
 import FirebaseAuth
+import GoogleSignIn
 import ImageIO
 
 struct CompanionRootView: View {
@@ -29,11 +30,17 @@ struct CompanionRootView: View {
         .task { store.switchAccount(account.accountID); account.onDeleteLocalAccount = { uid in try await store.deleteAccountData(uid) } }
         .onChange(of: account.accountID) { _, id in store.switchAccount(id) }
         .onChange(of: phase) { _, phase in
-            if phase == .active { store.foreground = true; store.consumeSharedLinks(); store.sync() }
+            if phase == .active { store.foreground = true; store.consumeSharedLinks(); store.consumeRecipeShare(); store.sync() }
             else if phase == .background { store.background() }
             keepAwake()
         }
-        .onChange(of: store.showCooking) { _, _ in keepAwake() }
+        .onChange(of: store.showCooking) { _, cooking in keepAwake(); if !cooking { store.consumeRecipeShare() } }
+        .onOpenURL { url in
+            if !store.openRecipeShare(url), !Auth.auth().canHandle(url) { _ = GIDSignIn.sharedInstance.handle(url) }
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { _ = store.openRecipeShare(url) }
+        }
         .onChange(of: store.profile.keepAwake) { _, _ in keepAwake() }
         .onChange(of: store.active?.finishedAt) { _, _ in keepAwake() }
         .alert("A little attention needed", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
@@ -201,9 +208,10 @@ struct CompanionHome: View {
     private var filtered: [CompanionRecipe] { store.recipes.filter { (!favorites || $0.favorite) && (query.isEmpty || ($0.title + " " + $0.ingredients.map(\.name).joined(separator: " ")).localizedCaseInsensitiveContains(query)) } }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 27) {
-                    header
+            List {
+                header.listRowInsets(EdgeInsets(top: 20, leading: 24, bottom: 27, trailing: 24))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+                Group {
                     if tab == "Profile" { profileContent }
                     else if tab == "Album" { album }
                     else {
@@ -235,8 +243,11 @@ struct CompanionHome: View {
                         }
                     }
                     if let notice = store.notice { Label(notice, systemImage: "icloud").font(.caption).foregroundStyle(.secondary) }
-                }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 24)
-            }.background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
+                }.listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 27, trailing: 24))
+                    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            }.listStyle(.plain).scrollContentBackground(.hidden).buttonStyle(.plain)
+                .environment(\.defaultMinListRowHeight, 0)
+                .background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()
                 .safeAreaInset(edge: .bottom, spacing: 0) { tabBar }
                 .toolbar(.hidden, for: .navigationBar)
                 .refreshable { store.sync() }
@@ -281,7 +292,7 @@ struct CompanionHome: View {
         }
     }
     private var inProgress: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Group {
             Text("On the go").font(Theme.serif(25))
             ForEach(store.inProgress) { attempt in
                 Button { store.resume(attempt.id) } label: {
@@ -290,7 +301,13 @@ struct CompanionHome: View {
                         VStack(alignment: .leading, spacing: 7) { Text(attempt.recipe.title).font(.subheadline.weight(.medium)); Text("Step \(attempt.focusIndex + 1) of \(attempt.recipe.steps.count) · \(attempt.currentStep.stage)").font(.caption).foregroundStyle(.secondary); Text("Continue cooking →").font(.caption.weight(.medium)).foregroundStyle(Theme.green) }
                         Spacer()
                     }.padding(12).background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 18))
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).accessibilityIdentifier("cook-\(attempt.id)")
+                    .disabled(store.deletingAttemptIDs.contains(attempt.id))
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { Task { await store.deleteAttempt(attempt.id) } } label: {
+                            Label("Delete", systemImage: "trash")
+                        }.buttonStyle(.automatic).tint(.red).accessibilityIdentifier("delete-cook-\(attempt.id)")
+                    }
             }
         }
     }
@@ -608,6 +625,10 @@ struct CompanionRecipeView: View {
     @State private var questions = false
     @State private var acceptedWarnings = false
     @State private var confirmDelete = false
+    @State private var sharing = false
+    @State private var shareURL: URL?
+    @State private var showShare = false
+    private var sharedEntry: Bool { store.sharedRecipeID == recipe.id }
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -662,7 +683,7 @@ struct CompanionRecipeView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Before you cook", systemImage: "exclamationmark.circle").font(.headline)
                             ForEach(recipe.warnings, id: \.self) { Text($0).font(.subheadline) }
-                            if preparation { Toggle("I’ve reviewed these notes", isOn: $acceptedWarnings).font(.subheadline) }
+                            if preparation || sharedEntry { Toggle("I’ve reviewed these notes", isOn: $acceptedWarnings).font(.subheadline) }
                         }.padding(18).background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
                     }
                     Button { questions = true } label: { HStack { Image(systemName: "sparkles"); Text("Can I use something else?"); Spacer(); Image(systemName: "mic") }.font(.subheadline).padding(17).background(Theme.sage, in: RoundedRectangle(cornerRadius: 15)) }.buttonStyle(.plain)
@@ -675,14 +696,22 @@ struct CompanionRecipeView: View {
                 }.padding(24)
             }.background(Theme.cream).foregroundStyle(Theme.ink)
             .safeAreaInset(edge: .bottom) {
-                Button(preparation ? "Let’s cook" : "Start cooking") {
-                    if preparation { store.start(recipe); dismiss(); Task { await store.enableNotifications() } }
+                Button(sharedEntry ? "Cook with voice guidance" : preparation ? "Let’s cook" : "Start cooking") {
+                    if sharedEntry { store.start(recipe); store.sharedRecipeID = nil; dismiss(); store.toggleVoice() }
+                    else if preparation { store.start(recipe); dismiss(); Task { await store.enableNotifications() } }
                     else { withAnimation { preparation = true } }
-                }.buttonStyle(FilledButton()).disabled(preparation && !recipe.warnings.isEmpty && !acceptedWarnings).padding(.horizontal, 24).padding(.vertical, 12).background(Theme.cream)
+                }.buttonStyle(FilledButton()).disabled((preparation || sharedEntry) && !recipe.warnings.isEmpty && !acceptedWarnings).padding(.horizontal, 24).padding(.vertical, 12).background(Theme.cream)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button { if preparation { preparation = false } else { dismiss() } } label: { Image(systemName: "arrow.left") }.accessibilityLabel("Back") }
                 ToolbarItem(placement: .topBarTrailing) { Button { recipe.favorite.toggle(); store.saveRecipe(recipe) } label: { Image(systemName: recipe.favorite ? "heart.fill" : "heart") }.accessibilityLabel("Favorite recipe") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        sharing = true
+                        Task { shareURL = await store.shareRecipe(recipe); sharing = false; showShare = shareURL != nil }
+                    } label: { if sharing { ProgressView() } else { Image(systemName: "square.and.arrow.up") } }
+                        .disabled(sharing).accessibilityLabel("Share recipe").accessibilityIdentifier("share-recipe")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash") }
                         .accessibilityLabel("Delete recipe").accessibilityIdentifier("delete-recipe")
@@ -694,6 +723,7 @@ struct CompanionRecipeView: View {
                 Button("Delete recipe", role: .destructive) { Task { await store.deleteRecipe(recipe.id) } }
             } message: { Text("This removes the recipe from your cookbook. Your cooking history and photos are kept.") }
         }.sheet(isPresented: $questions) { RecipeQuestionView(store: store, recipe: recipe) }
+            .sheet(isPresented: $showShare) { if let shareURL { RecipeShareSheet(url: shareURL, title: recipe.title).presentationDetents([.medium, .large]) } }
     }
     private func ingredientList(_ values: [RecipeIngredient]) -> some View {
         VStack(spacing: 17) {
@@ -719,6 +749,15 @@ struct CompanionRecipeView: View {
             if !recipe.evidence.isEmpty { DisclosureGroup("From the source & estimated details") { ForEach(Array(recipe.evidence.enumerated()), id: \.offset) { _, evidence in VStack(alignment: .leading, spacing: 5) { Text(evidence.origin == "source" ? "From the creator" : evidence.origin == "inferred" ? "Estimated" : "Supporting source").font(.caption.weight(.semibold)); Text(evidence.detail).font(.caption); if let raw = evidence.url, let url = URL(string: raw), url.scheme == "https" { Link("View source", destination: url).font(.caption) } }.padding(.vertical, 6) } } }
         }
     }
+}
+
+private struct RecipeShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let title: String
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: ["Cook \(title) with me in Oui Chef", url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 struct CompanionCookingView: View {

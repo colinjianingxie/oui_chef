@@ -21,6 +21,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>ouichef</string>
 				<string>com.googleusercontent.apps.172500657212-npggdl9k2gt55iiegbpqrjnl891eqrhc</string>
 				<string>app-1-172500657212-ios-65c9926aeca84ed7074f39</string>
 			</array>

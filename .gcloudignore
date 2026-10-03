@@ -5,6 +5,7 @@
 !prompts/**
 backend/node_modules/
 backend/__pycache__/
+**/__pycache__/**
 backend/.env*
 backend/*.test.mjs
 **/.DS_Store

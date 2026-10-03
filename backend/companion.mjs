@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
+import { createRecipeShare, receiveRecipeShare } from './recipe-sharing.mjs';
 import { importInput, readPage, readSocial, safeFetch, retrievalError, descriptionLinks } from './import-source.mjs';
 import { classifySource, extractRecipe, transcribe, translateTranscript, researchSource, inspectYouTube, answerQuestion, validateRecipe, validateSourceCoverage, validateSourceReview } from './recipe-agent.mjs';
 const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
@@ -241,6 +242,8 @@ export async function handleCompanion(req,res,{db,auth}) {
     const identity=await auth.verifyIdToken(token),uid=identity.uid;
     if(!allowedID(uid)||identity.firebase?.sign_in_provider==='anonymous'){send(res,403,{error:'Sign in to your cookbook.'});return;}
     if(req.url!=='/companion/delete-account-data'&&(await db.doc(`deletedAccounts/${uid}`).get()).exists){send(res,403,{error:'This account is being deleted.'});return;}
+    if(req.url==='/companion/share-recipe') {send(res,200,await createRecipeShare(db,uid,body.payload));return;}
+    if(req.url==='/companion/receive-share') {send(res,200,await receiveRecipeShare(db,uid,body.id));return;}
     if(req.url==='/companion/import') {
       const {url,text,source}=importInput(body);
       const id=createHash('sha256').update(url||'text:'+text).digest('hex').slice(0,32),ref=db.doc(`users/${uid}/imports/${id}`);
@@ -305,6 +308,17 @@ export async function handleCompanion(req,res,{db,auth}) {
       // Cooking attempts keep their recipe snapshots and cover images.
       send(res,200,{ok:true});return;
     }
+    if(req.url==='/companion/delete-cook') {
+      if(!allowedID(body.id))throw new Error('Invalid cooking session.');
+      await db.runTransaction(async tx=>{
+        const ref=db.doc(`users/${uid}/cooks/${body.id}`);
+        const deleted=await tx.get(db.doc(`deletedAccounts/${uid}`));
+        if(deleted.exists)throw new Error('Account deleted.');
+        // Keep a tombstone even for a cook that has not synced yet.
+        tx.set(ref,{id:body.id,deleted:true,updatedAt:Date.now()});
+      });
+      send(res,200,{ok:true});return;
+    }
     if(req.url==='/companion/question') {
       const budgetRef=db.doc(`aiQuestionLimits/${uid}`);
       await db.runTransaction(async tx=>{const doc=await tx.get(budgetRef),old=doc.data(),day=new Date().toISOString().slice(0,10),count=old?.day===day?old.count:0;
@@ -319,6 +333,7 @@ export async function handleCompanion(req,res,{db,auth}) {
         const ref=db.doc(`users/${uid}/cooks/${id}`);
         const [doc,deleted]=await Promise.all([tx.get(ref),tx.get(db.doc(`deletedAccounts/${uid}`))]),old=doc.data();
         if(deleted.exists)throw new Error('Account deleted.');
+        if(old?.deleted)return {deleted:true};
         if(old?.payload===payload)return {revision:old.revision};
         if((old?.revision??0)!==expectedRevision)return {conflict:true};
         tx.set(ref,{id,payload,revision:expectedRevision+1,updatedAt:Date.now(),finishedAt:session.finishedAt??null});return {revision:expectedRevision+1};
@@ -330,6 +345,8 @@ export async function handleCompanion(req,res,{db,auth}) {
       await db.doc(`deletedAccounts/${uid}`).set({deletedAt:Date.now()});
       const jobs=await db.collection(`users/${uid}/imports`).get();
       for(const doc of jobs.docs)await doc.ref.update({status:'canceled'});
+      const links=await db.collection('recipeLinks').where('ownerUID','==',uid).get();
+      for(const doc of links.docs)await doc.ref.delete();
       await getStorage().bucket().deleteFiles({prefix:`users/${uid}/`});
       await db.recursiveDelete(db.doc(`users/${uid}`));
       await Promise.all([db.doc(`importLimits/${uid}`).delete(),db.doc(`aiQuestionLimits/${uid}`).delete()]);

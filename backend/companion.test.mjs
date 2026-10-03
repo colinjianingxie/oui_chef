@@ -19,6 +19,31 @@ function verifiedRecipe(recipe,body) {
   return {recipe,sourceReview:passages.map(p=>({passageID:p.id,kind:recipe.outcome==='recipe'?'covered':'missing',stepIDs:(recipe.steps??[]).map(step=>step.id),ingredientIDs:[],reason:'Fixture evidence.'}))};
 }
 
+test('deleting one cook preserves its recipe and other cooks and rejects stale saves',async()=>{
+  const recipe={id:'bread',title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'500 g'}],steps:[{id:'mix',instruction:'Mix.',ingredients:[]}]};
+  const payload=JSON.stringify({id:'cook1',recipe,events:[],timers:[]});
+  const records=new Map([['users/owner/cooks/cook1',{payload,revision:1}],['users/owner/cooks/cook2',{payload:'other attempt'}],['users/owner/cookbook/bread',{payload:JSON.stringify(recipe)}],['users/other/cooks/cook1',{payload:'other user'}]]);
+  const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value)})};
+  async function call(path,body,uid='owner') {
+    let status,result;
+    await handleCompanion({url:'/companion/'+path,method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify(body));}},
+      {writeHead:code=>status=code,end:value=>result=JSON.parse(value)}, {db,auth:{verifyIdToken:async()=>({uid,firebase:{sign_in_provider:'password'}})}});
+    return {status,result};
+  }
+  assert.equal((await call('delete-cook',{id:'cook1'})).status,200);
+  assert.equal(records.get('users/owner/cooks/cook1').deleted,true);
+  assert.equal(records.get('users/owner/cooks/cook2').payload,'other attempt');
+  assert.equal(records.get('users/other/cooks/cook1').payload,'other user');
+  assert.equal(records.get('users/owner/cookbook/bread').payload,JSON.stringify(recipe));
+  for(const expectedRevision of [0,1,12])assert.deepEqual(await call('sync',{id:'cook1',payload,expectedRevision}),{status:200,result:{deleted:true}});
+  assert.equal((await call('delete-cook',{id:'cook1'})).status,200);
+  assert.equal((await call('delete-cook',{id:'unsynced'})).status,200);
+  assert.equal(records.get('users/owner/cooks/unsynced').deleted,true);
+  assert.equal((await call('delete-cook',{id:'../cook2'})).status,400);
+  assert.equal((await call('delete-cook',{id:'cook2'},'anonymous')).status,200);
+  assert.equal(records.get('users/owner/cooks/cook2').payload,'other attempt');
+});
+
 test('public source validation rejects internal targets and recognizes share URLs',()=>{
   for(const url of ['file:///etc/passwd','https://localhost/a','https://127.0.0.1/a','https://[::1]/','https://name:password@example.com','https://example.com:444/a'])assert.throws(()=>normalizeURL(url));
   for(const address of ['127.0.0.1','10.2.3.4','169.254.169.254','172.16.0.1','192.168.1.2','100.64.1.1','::ffff:127.0.0.1'])assert.equal(publicAddress(address),false);

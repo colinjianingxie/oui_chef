@@ -9,7 +9,7 @@ import UserNotifications
 @main
 struct OuiChefApp: App {
     @UIApplicationDelegateAdaptor(AuthAppDelegate.self) private var delegate
-    var body: some Scene { WindowGroup { CompanionRootView().onOpenURL { url in if !Auth.auth().canHandle(url) { _ = GIDSignIn.sharedInstance.handle(url) } } } }
+    var body: some Scene { WindowGroup { CompanionRootView() } }
 }
 
 final class AuthAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {

@@ -1,6 +1,45 @@
 import XCTest
 
 final class CompanionFlowTests: XCTestCase {
+    func testSharedRecipeIsSavedAndStartsVoiceCookingDirectly() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-share-preview", "--companion-shared-recipe"]; app.launch()
+        let cook = app.buttons["Cook with voice guidance"]
+        XCTAssertTrue(cook.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["share-recipe"].exists)
+        capture("Shared recipe ready to cook", app)
+        cook.tap()
+        XCTAssertTrue(app.buttons["complete-step"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Listening…"].exists)
+        XCTAssertFalse(app.buttons["Let’s cook"].exists)
+        app.buttons["Save and leave cooking"].tap()
+        app.buttons["tab-Cookbook"].tap()
+        let tile = app.buttons["recipe-shared-0123456789abcdef0123456789abcdef"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 5)); tile.tap()
+        app.buttons["share-recipe"].tap()
+        XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 5))
+        capture("Native recipe share sheet", app)
+    }
+    func testSwipeDeletesOnlySelectedCookAndKeepsRecipe() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-delete-cooks"]; app.launch()
+        let first = app.buttons["cook-preview-cook-1"], second = app.buttons["cook-preview-cook-2"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10)); XCTAssertTrue(second.exists)
+        first.swipeLeft()
+        let delete = app.buttons["delete-cook-preview-cook-1"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        capture("Swipe reveals delete cook", app); delete.tap()
+        XCTAssertTrue(first.waitForNonExistence(timeout: 5)); XCTAssertTrue(second.exists)
+        second.tap()
+        XCTAssertTrue(app.buttons["Save and leave cooking"].waitForExistence(timeout: 5))
+        app.buttons["Save and leave cooking"].tap()
+        second.swipeLeft(); app.buttons["delete-cook-preview-cook-2"].tap()
+        XCTAssertTrue(second.waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["On the go"].exists)
+        app.buttons["tab-Cookbook"].tap()
+        XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 5))
+        capture("Recipe kept after both cooks deleted", app)
+    }
     func testSelectAllIncludesPantryAndAllowsIndividualChanges() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()

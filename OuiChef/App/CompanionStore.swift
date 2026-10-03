@@ -32,9 +32,16 @@ final class CompanionStore {
     var focusedImportID: String?
     var asking = false
     var deletingRecipeIDs: Set<String> = []
+    var deletingAttemptIDs: Set<String> = []
     var voiceEnabled = false
     var voiceStatus = "Tap to talk"
     var selectedRecipe: CompanionRecipe?
+    var sharedRecipeID: String?
+    private var receivingShare = false
+    private var pendingShareID: String? {
+        get { UserDefaults.standard.string(forKey: "recipe.pendingShareID") }
+        set { UserDefaults.standard.set(newValue, forKey: "recipe.pendingShareID") }
+    }
     var showImport = false
     var showCooking = false
     var showPhoto = false
@@ -77,7 +84,8 @@ final class CompanionStore {
         listeners.forEach { $0.remove() }; listeners = []
         accountGeneration = UUID(); uid = accountID; archive = CompanionArchive(); imports = []
         selectedRecipe = nil; focusedImportID = nil; showImport = false; importing = false; showCooking = false; lastAnswer = nil; error = nil; notice = nil
-        deletingRecipeIDs = []
+        deletingRecipeIDs = []; deletingAttemptIDs = []
+        sharedRecipeID = nil; receivingShare = false
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Array(notificationIDs)); notificationIDs = []
         fileURL = nil
         #if DEBUG
@@ -100,6 +108,7 @@ final class CompanionStore {
                 self.loading = false
                 if let payload = snapshot?.data()?["payload"] as? String, let profile = try? CompanionJSON.decode(CookProfile.self, payload), !self.archive.profileDirty { self.archive.profile = profile; self.persist() }
                 if error != nil { self.notice = "Showing your saved kitchen. Cloud sync will retry." }
+                self.consumeRecipeShare()
             }
         })
         for collection in ["cookbook", "cooks", "imports"] {
@@ -116,6 +125,10 @@ final class CompanionStore {
                         }
                     } else {
                         for doc in docs {
+                            if collection == "cooks", doc.data()["deleted"] as? Bool == true {
+                                self.removeAttempt(doc.documentID)
+                                continue
+                            }
                             if collection == "cookbook", doc.data()["deleted"] as? Bool == true {
                                 self.archive.recipes.removeAll { $0.id == doc.documentID }
                                 self.archive.dirtyRecipes.remove(doc.documentID)
@@ -140,7 +153,7 @@ final class CompanionStore {
             guard let self, self.accountGeneration == generation else { return }
             self.loading = false
         }
-        scheduleTimers(); sync(); consumeSharedLinks()
+        scheduleTimers(); sync(); consumeSharedLinks(); consumeRecipeShare()
     }
 
     @discardableResult func persist() -> Bool {
@@ -149,7 +162,46 @@ final class CompanionStore {
         do { try JSONEncoder().encode(archive).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); return true }
         catch { self.error = "Your changes could not be saved: \(error.localizedDescription)"; return false }
     }
-    func setProfile(_ profile: CookProfile) { archive.profile = profile; archive.profileDirty = true; if persist() { sync() } }
+    func setProfile(_ profile: CookProfile) { archive.profile = profile; archive.profileDirty = true; if persist() { sync(); consumeRecipeShare() } }
+    func openRecipeShare(_ url: URL) -> Bool {
+        guard let id = RecipeShareLink.id(from: url) else { return false }
+        pendingShareID = id; consumeRecipeShare(); return true
+    }
+    func shareRecipe(_ recipe: CompanionRecipe) async -> URL? {
+        do {
+            let result = try await request("share-recipe", body: ["payload": try CompanionJSON.encode(recipe)])
+            guard let value = result["url"] as? String, let url = URL(string: value), RecipeShareLink.id(from: url) != nil else { throw CookingError.invalid("Please try sharing again.") }
+            return url
+        } catch { if !(error is CancellationError) { self.error = "Could not share this recipe. \(error.localizedDescription)" }; return nil }
+    }
+    func consumeRecipeShare() {
+        guard uid != nil, profile.onboardingComplete, !profile.needsPreferenceReview, !loading, !showCooking, !receivingShare, let id = pendingShareID else { return }
+        receivingShare = true
+        let generation = accountGeneration
+        Task {
+            defer {
+                if accountGeneration == generation {
+                    receivingShare = false
+                    if let next = pendingShareID, next != id { consumeRecipeShare() }
+                }
+            }
+            do {
+                let result = try await request("receive-share", body: ["id": id])
+                guard let payload = result["payload"] as? String else { throw CookingError.invalid("The shared recipe is unavailable.") }
+                let recipe = try CompanionJSON.decode(CompanionRecipe.self, payload); try recipe.validate()
+                guard accountGeneration == generation else { return }
+                let saved = archive.dirtyRecipes.contains(recipe.id) ? archive.recipes.first(where: { $0.id == recipe.id }) ?? recipe : recipe
+                archive.recipes.removeAll { $0.id == saved.id }; archive.recipes.append(saved)
+                guard persist() else { return }
+                if pendingShareID == id {
+                    pendingShareID = nil; sharedRecipeID = saved.id; selectedRecipe = saved
+                    showImport = false
+                }
+            } catch {
+                if accountGeneration == generation, pendingShareID == id { self.error = "Could not open this shared recipe. Check your connection and open the link again." }
+            }
+        }
+    }
     func saveRecipe(_ recipe: CompanionRecipe) {
         guard !deletingRecipeIDs.contains(recipe.id) else { return }
         archive.recipes.removeAll { $0.id == recipe.id }; archive.recipes.append(recipe); archive.dirtyRecipes.insert(recipe.id)
@@ -182,6 +234,29 @@ final class CompanionStore {
             selectedRecipe = nil; showCooking = true; lastAnswer = nil; sync()
         } catch { self.error = error.localizedDescription }
     }
+    func deleteAttempt(_ id: String) async {
+        guard inProgress.contains(where: { $0.id == id }), deletingAttemptIDs.insert(id).inserted else { return }
+        let generation = accountGeneration
+        defer { if accountGeneration == generation { deletingAttemptIDs.remove(id) } }
+        do {
+            await syncTask?.value
+            guard accountGeneration == generation else { return }
+            if !localTest { _ = try await request("delete-cook", body: ["id": id]) }
+            removeAttempt(id); persist(); scheduleTimers()
+        } catch {
+            if accountGeneration == generation { self.error = "Could not delete this cook. \(error.localizedDescription)" }
+        }
+    }
+    private func removeAttempt(_ id: String) {
+        let attempt = archive.attempts.first { $0.id == id }
+        if archive.activeID == id { stopVoice(); archive.activeID = nil; showCooking = false; lastAnswer = nil }
+        archive.attempts.removeAll { $0.id == id }; archive.dirtyAttempts.remove(id)
+        archive.pendingPhotos.remove(id); archive.revisions[id] = nil
+        let identifiers = (attempt?.timers ?? []).map { "cook-\(id)-\($0.id)" }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers)
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+        if let file = attempt?.photoFile { try? FileManager.default.removeItem(at: photoURL(file)) }
+    }
     func resume(_ id: String) { stopVoice(); archive.activeID = id; showCooking = true; lastAnswer = nil; persist() }
     func act(_ operation: String, target: String? = nil, seconds: Double? = nil, text: String? = nil, additional: Bool = false) {
         guard let active else { return }
@@ -205,6 +280,15 @@ final class CompanionStore {
     }
 
     func request(_ path: String, body: [String: Any]) async throws -> [String: Any] {
+        #if DEBUG
+        if localTest, ProcessInfo.processInfo.arguments.contains("--companion-share-preview") {
+            let id = "0123456789abcdef0123456789abcdef"
+            if path == "share-recipe" { return ["url": "https://\(RecipeShareLink.host)/r/\(id)"] }
+            if path == "receive-share", body["id"] as? String == id, var recipe = archive.recipes.first {
+                recipe.id = "shared-\(id)"; return ["payload": try CompanionJSON.encode(recipe)]
+            }
+        }
+        #endif
         guard let uid, let user = Auth.auth().currentUser, user.uid == uid,
               let endpoint = CloudVoiceAccount.endpoint, var url = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { throw CookingError.invalid("Sign in to continue.") }
         let generation = accountGeneration
@@ -291,13 +375,17 @@ final class CompanionStore {
                     }
                 }
                 for id in archive.dirtyAttempts {
+                    guard !deletingAttemptIDs.contains(id) else { continue }
                     guard let attempt = archive.attempts.first(where: { $0.id == id }) else { continue }
                     do {
                         let response = try await request("sync", body: ["id": id, "payload": try CompanionJSON.encode(attempt), "expectedRevision": archive.revisions[id] ?? 0])
                         guard accountGeneration == generation, !Task.isCancelled else { return }
+                        if response["deleted"] as? Bool == true { removeAttempt(id); scheduleTimers(); continue }
                         archive.revisions[id] = response["revision"] as? Int ?? 0
                         if attempt == archive.attempts.first(where: { $0.id == id }) { archive.dirtyAttempts.remove(id) }
                     } catch CompanionRequestError.conflict {
+                        guard accountGeneration == generation, !Task.isCancelled else { return }
+                        guard !deletingAttemptIDs.contains(id) else { continue }
                         // Preserve both cooks when two devices have changed the same attempt.
                         guard let current = archive.attempts.first(where: { $0.id == id }) else { continue }
                         var recovered = current; recovered.id = UUID().uuidString
@@ -388,6 +476,9 @@ final class CompanionStore {
     func toggleVoice() {
         if voiceEnabled { stopVoice(); return }
         guard active?.finishedAt == nil, active != nil else { return }
+        #if DEBUG
+        if localTest, ProcessInfo.processInfo.arguments.contains("--companion-share-preview") { voiceEnabled = true; voiceStatus = "Listening…"; return }
+        #endif
         let generation = accountGeneration, sessionID = active?.id
         Task {
             guard await AVAudioApplication.requestRecordPermission() else { error = "Enable microphone access in Settings to talk while cooking."; return }
@@ -464,12 +555,23 @@ final class CompanionStore {
     }
     #if DEBUG
     private func loadPreview() {
+        pendingShareID = nil
         uid = "preview"; loading = false; archive.profile.onboardingComplete = !ProcessInfo.processInfo.arguments.contains("--companion-onboarding")
         let recipe = CompanionRecipe(id: "preview-pasta", title: "Creamy garlic pasta", summary: "Simple ingredients. A little kitchen magic.", sourceURL: "https://example.com/recipe", sourceName: "Sample recipe", creator: "Oui Chef · preview", servings: 2, prepMinutes: 10, cookMinutes: 15, totalMinutes: 25,
             ingredients: [RecipeIngredient(id: "pasta", name: "Tagliatelle", quantity: "225 g", amount: 225, unit: "g"), RecipeIngredient(id: "garlic", name: "Garlic", quantity: "6 cloves"), RecipeIngredient(id: "cream", name: "Heavy cream", quantity: "1 cup"), RecipeIngredient(id: "parmesan", name: "Parmesan", quantity: "½ cup, grated"), RecipeIngredient(id: "oil", name: "Olive oil", quantity: "2 tbsp", pantry: true)],
             preparation: ["Peel and finely mince the garlic.", "Grate the parmesan."],
             steps: [RecipeStep(id: "boil", title: "Get the pasta going", instruction: "Bring a large pan of salted water to a boil. Add the pasta and cook according to the packet.", stage: "Cook the pasta", ingredients: [StepIngredient(ingredientID: "pasta", quantity: "225 g")], visualCue: "The pasta should be tender with a little bite."), RecipeStep(id: "garlic", title: "Sauté the garlic", instruction: "Warm the olive oil over medium heat. Add the garlic and stir gently until fragrant and just golden.", stage: "Make the sauce", ingredients: [StepIngredient(ingredientID: "garlic", quantity: "6 cloves, minced"), StepIngredient(ingredientID: "oil", quantity: "2 tbsp")], durationSeconds: 90, visualCue: "Lightly golden, not brown."), RecipeStep(id: "finish", title: "Bring it all together", instruction: "Add the cream, then stir in the parmesan and drained pasta. Loosen with a splash of pasta water if needed.", stage: "Finish & serve", ingredients: [StepIngredient(ingredientID: "cream", quantity: "1 cup"), StepIngredient(ingredientID: "parmesan", quantity: "½ cup")], visualCue: "A silky sauce that coats every strand.")], reviewed: true)
         archive.recipes = [recipe]
+        if ProcessInfo.processInfo.arguments.contains("--companion-shared-recipe") {
+            _ = openRecipeShare(URL(string: "https://\(RecipeShareLink.host)/r/0123456789abcdef0123456789abcdef")!)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--companion-delete-cooks") {
+            var first = CookAttempt(recipe: recipe); first.id = "preview-cook-1"
+            var second = CookAttempt(recipe: recipe); second.id = "preview-cook-2"
+            second.focusIndex = 1
+            archive.attempts = [first, second]; archive.activeID = first.id
+            archive.dirtyAttempts = [first.id, second.id]
+        }
         if ProcessInfo.processInfo.arguments.contains("--companion-timer-rounds") {
             var bread = recipe
             bread.id = "preview-focaccia"; bread.title = "Focaccia timer check"

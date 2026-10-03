@@ -1,0 +1,8 @@
+{
+  "applinks": {
+    "details": [{
+      "appIDs": ["84KXUNPGCM.com.xie.ouichef"],
+      "components": [{"/": "/r/*", "comment": "Shared Oui Chef recipes"}]
+    }]
+  }
+}

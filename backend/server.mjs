@@ -1,4 +1,5 @@
 import { handleCompanion } from './companion.mjs';
+import { handleRecipePage } from './recipe-sharing.mjs';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ import { handleAccountRequest } from './accounts.mjs';
 
 export function createVoiceServer({ db, auth, connectProvider = openProvider }) {
 const server = createServer((req, res) => {
+  if (req.url?.startsWith('/r/')) { void handleRecipePage(req, res, { db }); return; }
   if (req.url?.startsWith('/companion/')) { void handleCompanion(req, res, { db, auth }); return; }
   if (req.url === '/catalog/publish') { void handleCatalogRequest(req, res, { db, auth }); return; }
   if (req.url === '/account/claim-voice') { void handleAccountRequest(req, res, { db, auth }); return; }

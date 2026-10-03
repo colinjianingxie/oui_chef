@@ -2,6 +2,8 @@
 
 An iOS AI cooking companion: import a recipe link, review its ingredients, cook with persistent steps and timers, and save the finished dish in a private album. Equipment is optional. The app uses native SwiftUI, Firebase Auth/Firestore/Storage, and xAI.
 
+Recipe sharing uses Firebase Hosting links to save and open an already parsed recipe in another account. In-progress cooking sessions support native swipe-to-delete. See [recipe sharing and session deletion](docs/RECIPE_SHARING.md) for the beta flow, deployment, and checks.
+
 ## Run
 
 Open **OuiChef.xcodeproj**, choose **OuiChef**, select an iPhone or simulator, and press Run. Deployment target: iOS 17+. Automatic signing uses team `84KXUNPGCM` and bundle ID `com.xie.ouichef`. The bundled Share Extension uses `com.xie.ouichef.share`; both targets share the App Group `group.com.xie.ouichef`.
