@@ -7,6 +7,7 @@ import AVFoundation
 import CryptoKit
 
 private enum CompanionRequestError: Error { case conflict }
+enum KitchenTab: String, CaseIterable { case home = "Home", cookbook = "Cookbook", album = "Album", kitchen = "Kitchen" }
 
 struct CompanionArchive: Codable {
     var profile = CookProfile()
@@ -33,8 +34,13 @@ final class CompanionStore {
     var asking = false
     var deletingRecipeIDs: Set<String> = []
     var deletingAttemptIDs: Set<String> = []
-    var voiceEnabled = false
-    var voiceStatus = "Tap to talk"
+    var tab: KitchenTab = .home
+    var voiceState: CookingVoiceState = .inactive
+    var microphoneActive = false
+    var voiceEnabled: Bool { [.connecting, .listening, .processing, .speaking].contains(voiceState) }
+    var voiceStatus: String { voiceState.label }
+    var pendingVoiceChange: CookAction?
+    private var voiceRequestID = UUID()
     var selectedRecipe: CompanionRecipe?
     var sharedRecipeID: String?
     private var receivingShare = false
@@ -55,6 +61,7 @@ final class CompanionStore {
     private var voiceCalls = Set<String>()
     private var accountGeneration = UUID()
     private var fileURL: URL?
+    private var storageUnavailable = false
     private var tickTask: Task<Void,Never>?
     private var localTest = false
     private var notificationIDs: Set<String> = []
@@ -64,7 +71,7 @@ final class CompanionStore {
     var recipes: [CompanionRecipe] { archive.recipes.sorted { $0.createdAt > $1.createdAt } }
     var active: CookAttempt? { archive.attempts.first { $0.id == archive.activeID } }
     var history: [CookAttempt] { archive.attempts.filter { $0.finishedAt != nil }.sorted { ($0.finishedAt ?? 0) > ($1.finishedAt ?? 0) } }
-    var inProgress: [CookAttempt] { archive.attempts.filter { $0.finishedAt == nil } }
+    var inProgress: [CookAttempt] { archive.attempts.filter { $0.finishedAt == nil }.sorted { ($0.lastOpenedAt ?? $0.startedAt) > ($1.lastOpenedAt ?? $1.startedAt) } }
     static var now: Double { Date().timeIntervalSince1970 * 1000 }
 
     init() {
@@ -80,12 +87,12 @@ final class CompanionStore {
     }
 
     func switchAccount(_ accountID: String?) {
-        stopVoice(); syncTask?.cancel(); syncTask = nil
+        stopVoice(); syncTask?.cancel(); syncTask = nil; pendingVoiceChange = nil; tab = .home; storageUnavailable = false
         listeners.forEach { $0.remove() }; listeners = []
         accountGeneration = UUID(); uid = accountID; archive = CompanionArchive(); imports = []
         selectedRecipe = nil; focusedImportID = nil; showImport = false; importing = false; showCooking = false; lastAnswer = nil; error = nil; notice = nil
         deletingRecipeIDs = []; deletingAttemptIDs = []
-        sharedRecipeID = nil; receivingShare = false
+        sharedRecipeID = nil; receivingShare = false; asking = false
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: Array(notificationIDs)); notificationIDs = []
         fileURL = nil
         #if DEBUG
@@ -99,7 +106,7 @@ final class CompanionStore {
             let key = SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
             fileURL = directory.appendingPathComponent(key + ".json")
             if let fileURL, FileManager.default.fileExists(atPath: fileURL.path) { archive = try JSONDecoder().decode(CompanionArchive.self, from: Data(contentsOf: fileURL)) }
-        } catch { self.error = "Your local cookbook could not open: \(error.localizedDescription)" }
+        } catch { storageUnavailable = true; self.error = "Your local cookbook could not open. Its saved file has been preserved. \(error.localizedDescription)" }
         let generation = accountGeneration
         loading = !archive.profile.onboardingComplete
         listeners.append(db.document("users/\(accountID)/settings/cooking").addSnapshotListener { [weak self] snapshot, error in
@@ -158,11 +165,17 @@ final class CompanionStore {
 
     @discardableResult func persist() -> Bool {
         guard !localTest else { return true }
+        guard !storageUnavailable else { error = "Your saved kitchen needs recovery before more changes can be saved."; return false }
         guard let fileURL else { return false }
         do { try JSONEncoder().encode(archive).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); return true }
         catch { self.error = "Your changes could not be saved: \(error.localizedDescription)"; return false }
     }
-    func setProfile(_ profile: CookProfile) { archive.profile = profile; archive.profileDirty = true; if persist() { sync(); consumeRecipeShare() } }
+    @discardableResult func setProfile(_ profile: CookProfile) -> Bool {
+        let previous = archive
+        archive.profile = profile; archive.profileDirty = true
+        guard persist() else { archive = previous; return false }
+        sync(); consumeRecipeShare(); return true
+    }
     func openRecipeShare(_ url: URL) -> Bool {
         guard let id = RecipeShareLink.id(from: url) else { return false }
         pendingShareID = id; consumeRecipeShare(); return true
@@ -202,10 +215,12 @@ final class CompanionStore {
             }
         }
     }
-    func saveRecipe(_ recipe: CompanionRecipe) {
-        guard !deletingRecipeIDs.contains(recipe.id) else { return }
+    @discardableResult func saveRecipe(_ recipe: CompanionRecipe) -> Bool {
+        guard !deletingRecipeIDs.contains(recipe.id) else { return false }
+        let previous = archive
         archive.recipes.removeAll { $0.id == recipe.id }; archive.recipes.append(recipe); archive.dirtyRecipes.insert(recipe.id)
-        if persist() { sync() }
+        guard persist() else { archive = previous; return false }
+        sync(); return true
     }
     func deleteRecipe(_ id: String) async {
         guard deletingRecipeIDs.insert(id).inserted else { return }
@@ -224,14 +239,16 @@ final class CompanionStore {
             if accountGeneration == generation { self.error = "Could not delete the recipe. \(error.localizedDescription)" }
         }
     }
-    func start(_ recipe: CompanionRecipe) {
+    func start(_ recipe: CompanionRecipe, newAttempt: Bool = false) {
         do {
             try recipe.validate()
-            var saved = recipe; saved.reviewed = true; saveRecipe(saved)
-            let attempt = CookAttempt(recipe: saved)
+            if !newAttempt, let existing = inProgress.first(where: { $0.recipe.id == recipe.id && $0.recipe.version == recipe.version }) { resume(existing.id); selectedRecipe = nil; return }
+            let previous = archive
+            var attempt = CookAttempt(recipe: recipe)
+            attempt.preparation = CookingPreparation(); attempt.profileSnapshot = profile; attempt.lastOpenedAt = Self.now
             archive.attempts.append(attempt); archive.activeID = attempt.id; archive.dirtyAttempts.insert(attempt.id)
-            guard persist() else { return }
-            selectedRecipe = nil; showCooking = true; lastAnswer = nil; sync()
+            guard persist() else { archive = previous; return }
+            stopVoice(); pendingVoiceChange = nil; selectedRecipe = nil; sharedRecipeID = nil; showCooking = true; lastAnswer = nil; sync()
         } catch { self.error = error.localizedDescription }
     }
     func deleteAttempt(_ id: String) async {
@@ -257,7 +274,14 @@ final class CompanionStore {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
         if let file = attempt?.photoFile { try? FileManager.default.removeItem(at: photoURL(file)) }
     }
-    func resume(_ id: String) { stopVoice(); archive.activeID = id; showCooking = true; lastAnswer = nil; persist() }
+    func resume(_ id: String) {
+        guard let index = archive.attempts.firstIndex(where: { $0.id == id && $0.finishedAt == nil }) else { return }
+        let previous = archive
+        archive.activeID = id; archive.attempts[index].lastOpenedAt = Self.now; archive.dirtyAttempts.insert(id)
+        guard persist() else { archive = previous; return }
+        stopVoice(); pendingVoiceChange = nil; selectedRecipe = nil
+        showCooking = true; lastAnswer = archive.attempts[index].messages.last(where: { $0.role == "assistant" })?.text; sync()
+    }
     func act(_ operation: String, target: String? = nil, seconds: Double? = nil, text: String? = nil, additional: Bool = false) {
         guard let active else { return }
         do { try apply(CookAction(operation: operation, sessionID: active.id, revision: active.revision, target: target, seconds: seconds, text: text, additional: additional)) }
@@ -274,13 +298,17 @@ final class CompanionStore {
         if next.finishedAt != nil { stopVoice() }
         else if voiceEnabled { voice.send(["type": "context", "context": voiceContext()]) }
     }
-    func updateAttempt(_ id: String, edit: (inout CookAttempt) -> Void) {
-        guard let index = archive.attempts.firstIndex(where: { $0.id == id }) else { return }
-        edit(&archive.attempts[index]); archive.dirtyAttempts.insert(id); if persist() { sync() }
+    @discardableResult func updateAttempt(_ id: String, edit: (inout CookAttempt) -> Void) -> Bool {
+        guard let index = archive.attempts.firstIndex(where: { $0.id == id }) else { return false }
+        let previous = archive
+        edit(&archive.attempts[index]); archive.dirtyAttempts.insert(id)
+        guard persist() else { archive = previous; return false }
+        sync(); return true
     }
 
     func request(_ path: String, body: [String: Any]) async throws -> [String: Any] {
         #if DEBUG
+        if localTest, path == "question", ProcessInfo.processInfo.arguments.contains("--companion-answer-preview") { return ["answer": "Use a wide pan so the garlic cooks evenly. Keep the heat medium-low and stir until lightly golden."] }
         if localTest, ProcessInfo.processInfo.arguments.contains("--companion-share-preview") {
             let id = "0123456789abcdef0123456789abcdef"
             if path == "share-recipe" { return ["url": "https://\(RecipeShareLink.host)/r/\(id)"] }
@@ -345,7 +373,7 @@ final class CompanionStore {
     }
 
     func sync() {
-        guard syncTask == nil, let uid, !localTest else { return }
+        guard syncTask == nil, let uid, !localTest, !storageUnavailable else { return }
         let generation = accountGeneration
         syncTask = Task { [weak self] in
             guard let self else { return }
@@ -368,10 +396,10 @@ final class CompanionStore {
                     guard let attempt = archive.attempts.first(where: { $0.id == id }), let file = attempt.photoFile else { continue }
                     let data = try Data(contentsOf: photoURL(file)); let path = "users/\(uid)/cooks/\(id)/dish.jpg"
                     let metadata = StorageMetadata(); metadata.contentType = "image/jpeg"
-                    _ = try await Storage.storage().reference().child(path).putDataAsync(data, metadata: metadata)
+                    let uploaded = try await Storage.storage().reference().child(path).putDataAsync(data, metadata: metadata)
                     guard accountGeneration == generation, !Task.isCancelled else { return }
                     if let index = archive.attempts.firstIndex(where: { $0.id == id && $0.photoFile == file }) {
-                        archive.attempts[index].photoPath = path; archive.pendingPhotos.remove(id); archive.dirtyAttempts.insert(id)
+                        archive.attempts[index].photoPath = path; archive.attempts[index].photoGeneration = String(uploaded.generation); archive.pendingPhotos.remove(id); archive.dirtyAttempts.insert(id)
                     }
                 }
                 for id in archive.dirtyAttempts {
@@ -389,6 +417,13 @@ final class CompanionStore {
                         // Preserve both cooks when two devices have changed the same attempt.
                         guard let current = archive.attempts.first(where: { $0.id == id }) else { continue }
                         var recovered = current; recovered.id = UUID().uuidString
+                        if let file = current.photoFile, let data = try? Data(contentsOf: photoURL(file)) {
+                            let name = UUID().uuidString + ".jpg"
+                            try data.write(to: photoURL(name), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+                            recovered.photoFile = name; recovered.photoPath = nil; recovered.photoGeneration = nil
+                            archive.pendingPhotos.insert(recovered.id)
+                        }
+                        archive.pendingPhotos.remove(id)
                         recovered.changes.append("Continued as a separate attempt after changes on another device.")
                         archive.attempts.removeAll { $0.id == id }; archive.attempts.append(recovered)
                         archive.dirtyAttempts.remove(id); archive.dirtyAttempts.insert(recovered.id); archive.revisions[id] = nil
@@ -422,7 +457,7 @@ final class CompanionStore {
         catch { notice = "Timer alerts could not be enabled." }
     }
     private func offerReminder() {
-        guard foreground, voiceEnabled, profile.gentleGuidance, let active, !active.guidancePaused, active.finishedAt == nil else { return }
+        guard foreground, voiceEnabled, profile.gentleGuidance, let active, !active.isPreparing, !active.guidancePaused, active.finishedAt == nil else { return }
         guard Self.now - lastReminderAt > 30000 else { return }
         let timer = active.timers.first { $0.expired(at: Self.now) && !active.deliveredReminders.contains($0.id) }
         if let timer {
@@ -436,27 +471,32 @@ final class CompanionStore {
         }
     }
 
-    func ask(_ question: String, recipe: CompanionRecipe, image: Data? = nil) async {
-        guard !asking else { return }; asking = true; lastAnswer = nil; defer { asking = false }
-        let attemptID = active?.recipe.id == recipe.id ? active?.id : nil
+    @discardableResult func ask(_ question: String, recipe: CompanionRecipe?, image: Data? = nil) async -> Bool {
+        guard !asking else { return false }
+        let generation = accountGeneration
+        asking = true; lastAnswer = nil
+        defer { if generation == accountGeneration { asking = false } }
+        let attemptID = showCooking && active?.finishedAt == nil && active?.recipe.id == recipe?.id ? active?.id : nil
         if let attemptID { updateAttempt(attemptID) { $0.messages.append(CookingMessage(role: "user", text: question)) } }
         do {
-            var body: [String: Any] = ["question": question, "recipe": try json(recipe), "profile": try json(profile), "history": historyContext(recipeID: recipe.id)]
+            var body: [String: Any] = ["question": question, "recipe": try json(recipe), "profile": try json(attemptID == nil ? profile : active?.profileSnapshot ?? profile), "history": recipe.map { historyContext(recipeID: $0.id) } ?? []]
             if let attemptID, let attempt = archive.attempts.first(where: { $0.id == attemptID }) { var state = try json(attempt) as? [String:Any] ?? [:]; state.removeValue(forKey: "recipe"); body["session"] = state }
             if let image { body["image"] = "data:image/jpeg;base64,\(image.base64EncodedString())" }
             let result = try await request("question", body: body)
+            guard generation == accountGeneration else { return false }
             let answer = result["answer"] as? String ?? "Please try your question again."; lastAnswer = answer
             if let attemptID { updateAttempt(attemptID) { $0.messages.append(CookingMessage(role: "assistant", text: answer)) } }
-        } catch { self.error = error.localizedDescription }
+            return true
+        } catch { if generation == accountGeneration { self.error = error.localizedDescription }; return false }
     }
-    private func json<T: Encodable>(_ value: T) throws -> Any { try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) }
+    private func json<T: Encodable>(_ value: T) throws -> Any { try JSONSerialization.jsonObject(with: JSONEncoder().encode(value), options: .fragmentsAllowed) }
     private func historyContext(recipeID: String) -> [[String:Any]] {
         history.filter { $0.recipe.id == recipeID }.prefix(3).map {
             ["date": $0.finishedAt ?? 0, "changes": $0.changes, "notes": $0.notes, "recipeTemperatures": $0.recipe.steps.compactMap { $0.temperature }, "completedSteps": $0.completed, "durationMinutes": (($0.finishedAt ?? $0.startedAt) - $0.startedAt) / 60000] as [String:Any]
         }
     }
     private func voiceContext() -> [String: Any] {
-        var context: [String: Any] = ["companionVersion": 2, "profile": (try? json(profile)) ?? [:]]
+        var context: [String: Any] = ["companionVersion": 2, "profile": (try? json(active?.profileSnapshot ?? profile)) ?? [:]]
         if var attempt = active {
             attempt.messages = Array(attempt.messages.suffix(8)); attempt.events = Array(attempt.events.suffix(100))
             let now = Self.now
@@ -474,27 +514,37 @@ final class CompanionStore {
         return context
     }
     func toggleVoice() {
-        if voiceEnabled { stopVoice(); return }
+        if voiceEnabled { stopVoice(muted: true); return }
         guard active?.finishedAt == nil, active != nil else { return }
         #if DEBUG
-        if localTest, ProcessInfo.processInfo.arguments.contains("--companion-share-preview") { voiceEnabled = true; voiceStatus = "Listening…"; return }
+        if localTest { voiceState = ProcessInfo.processInfo.arguments.contains("--companion-voice-error") ? .error("Microphone access is off. Use the written question and step controls.") : .listening; microphoneActive = false; return }
         #endif
         let generation = accountGeneration, sessionID = active?.id
+        let requestID = UUID(); voiceRequestID = requestID; voiceState = .connecting
         Task {
-            guard await AVAudioApplication.requestRecordPermission() else { error = "Enable microphone access in Settings to talk while cooking."; return }
-            guard accountGeneration == generation, active?.id == sessionID, foreground, showCooking else { return }
-            voiceEnabled = true; voiceStatus = "Connecting…"; voiceCalls = []
+            let granted = await AVAudioApplication.requestRecordPermission()
+            guard accountGeneration == generation, voiceRequestID == requestID, active?.id == sessionID, foreground, showCooking else { return }
+            guard granted else { voiceState = .error("Microphone access is off. Enable it in Settings, or use the written question and step controls."); return }
+            voiceCalls = []
             do { try await voice.start(context: voiceContext()) }
-            catch { stopVoice(); self.error = error.localizedDescription }
+            catch { if voiceRequestID == requestID { stopVoice(); voiceState = .error(error.localizedDescription) } }
         }
     }
-    func stopVoice() { voice.stop(); voiceEnabled = false; voiceStatus = "Tap to talk" }
+    func stopVoice(muted: Bool = false) { voiceRequestID = UUID(); voice.stop(); microphoneActive = false; voiceState = muted ? .muted : .inactive }
+    func interruptVoice() { voice.interrupt() }
+    func acceptVoiceChange() {
+        guard let action = pendingVoiceChange else { return }
+        pendingVoiceChange = nil
+        do { try apply(action) } catch { self.error = error.localizedDescription }
+    }
     private func receiveVoice(_ event: [String: Any]) {
         switch event["type"] as? String {
-        case "ready": voiceStatus = "Listening…"
-        case "responding": voiceStatus = "Your chef is speaking"
-        case "playback_finished": if voiceEnabled { voiceStatus = "Listening…" }
-        case "ended", "error": notice = event["message"] as? String; stopVoice()
+        case "ready": microphoneActive = true; voiceState = .listening
+        case "speech_started": voiceState = .listening
+        case "speech_stopped", "responding": voiceState = .processing
+        case "audio": voiceState = .speaking
+        case "playback_finished": if voiceEnabled { voiceState = .listening }
+        case "ended", "error": stopVoice(); voiceState = .error(event["message"] as? String ?? "Voice disconnected. Your steps and timers are saved.")
         case "transcript":
             if let text = event["text"] as? String, !text.isEmpty, let active {
                 updateAttempt(active.id) { $0.messages.append(CookingMessage(role: event["role"] as? String ?? "assistant", text: text)) }
@@ -511,7 +561,10 @@ final class CompanionStore {
                     guard object["confirmed"] as? Bool == true else { throw CookingError.invalid("Confirm the cooking action first.") }
                     var payload = object; payload["id"] = callID
                     let action = try JSONDecoder().decode(CookAction.self, from: JSONSerialization.data(withJSONObject: payload))
-                    try apply(action); result = ["ok": true, "state": voiceContext()]
+                    if operation == "record_change" {
+                        guard action.sessionID == active?.id, action.revision == active?.revision else { throw CookingError.invalid("The cooking state changed. Ask again.") }
+                        pendingVoiceChange = action; result = ["ok": false, "pendingConfirmation": true, "message": "The change is displayed for the cook to approve. It has not been saved yet."]
+                    } else { try apply(action); result = ["ok": true, "state": voiceContext()] }
                 }
             } catch { result = ["ok": false, "error": error.localizedDescription, "state": voiceContext()] }
             voice.send(["type": "tool_result", "callID": callID, "output": (try? JSONSerialization.data(withJSONObject: result)).map { String(decoding: $0, as: UTF8.self) } ?? "{}", "context": voiceContext()])
@@ -524,21 +577,36 @@ final class CompanionStore {
         if attempt.recipe.sourceName == "YouTube", let seconds = step.videoSeconds { url.queryItems = (url.queryItems ?? []).filter { $0.name != "t" } + [URLQueryItem(name: "t", value: "\(Int(seconds))s")] }
         stopVoice(); videoURL = url.url
     }
-    func background() { foreground = false; stopVoice(); persist(); scheduleTimers() }
+    func background() { foreground = false; stopVoice(muted: true); persist(); scheduleTimers() }
     func photoURL(_ name: String) -> URL { (fileURL?.deletingLastPathComponent() ?? FileManager.default.temporaryDirectory).appendingPathComponent(name) }
-    func attachPhoto(_ image: UIImage, attemptID: String) {
-        guard let data = DishPhotoView.compressed(image) else { error = "This photo could not be saved."; return }
+    @discardableResult func attachPhoto(_ image: UIImage, attemptID: String) -> Bool {
+        guard let index = archive.attempts.firstIndex(where: { $0.id == attemptID }), let data = DishPhoto.compressed(image) else { error = "This photo could not be saved."; return false }
+        let previous = archive, oldFile = archive.attempts[index].photoFile, name = UUID().uuidString + ".jpg"
         do {
-            let name = UUID().uuidString + ".jpg"; try data.write(to: photoURL(name), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication])
-            archive.pendingPhotos.insert(attemptID); updateAttempt(attemptID) { $0.photoFile = name }; showPhoto = false
-        } catch { self.error = "This photo could not be saved." }
+            try data.write(to: photoURL(name), options: [.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+            archive.pendingPhotos.insert(attemptID); archive.dirtyAttempts.insert(attemptID)
+            archive.attempts[index].photoFile = name; archive.attempts[index].photoRemoved = nil; archive.attempts[index].photoGeneration = nil
+            guard persist() else { archive = previous; try? FileManager.default.removeItem(at: photoURL(name)); return false }
+            if let oldFile { try? FileManager.default.removeItem(at: photoURL(oldFile)) }
+            sync(); showPhoto = false; return true
+        } catch { self.error = "This photo could not be saved."; return false }
     }
     func loadPhoto(_ attempt: CookAttempt) async -> UIImage? {
+        guard attempt.photoRemoved != true else { return nil }
         if let file = attempt.photoFile, let image = UIImage(contentsOfFile: photoURL(file).path) { return image }
         guard let uid, let path = attempt.photoPath, path == "users/\(uid)/cooks/\(attempt.id)/dish.jpg" else { return nil }
         let generation = accountGeneration
         guard let data = try? await Storage.storage().reference().child(path).data(maxSize: 2_000_000), generation == accountGeneration else { return nil }
         return UIImage(data: data)
+    }
+    @discardableResult func removePhoto(_ attemptID: String) -> Bool {
+        guard let index = archive.attempts.firstIndex(where: { $0.id == attemptID }) else { return false }
+        let previous = archive, file = archive.attempts[index].photoFile
+        archive.pendingPhotos.remove(attemptID); archive.dirtyAttempts.insert(attemptID)
+        archive.attempts[index].photoFile = nil; archive.attempts[index].photoPath = nil; archive.attempts[index].photoRemoved = true
+        guard persist() else { archive = previous; return false }
+        if let file { try? FileManager.default.removeItem(at: photoURL(file)) }
+        sync(); return true
     }
     func deleteAccountData(_ uid: String) async throws {
         guard self.uid == uid else { throw CookingError.invalid("Account changed.") }

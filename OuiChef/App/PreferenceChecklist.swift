@@ -54,7 +54,7 @@ struct PreferenceChecklist: View {
     private func row(_ name: String, checked: Bool, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: checked ? "checkmark.square.fill" : "square").foregroundStyle(Theme.green).font(.title3)
+                Image(systemName: checked ? "checkmark.square.fill" : "square").foregroundStyle(Theme.plum).font(.title3)
                 Text(name).foregroundStyle(Theme.ink)
                 Spacer(minLength: 0)
             }.frame(minHeight: 44).contentShape(Rectangle())

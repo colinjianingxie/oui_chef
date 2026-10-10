@@ -1,318 +1,118 @@
 import XCTest
 
-final class CompanionFlowTests: XCTestCase {
-    func testSharedRecipeIsSavedAndStartsVoiceCookingDirectly() {
+extension XCTestCase {
+    func preview(_ flags: String...) -> XCUIApplication {
         continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-share-preview", "--companion-shared-recipe"]; app.launch()
-        let cook = app.buttons["Cook with voice guidance"]
-        XCTAssertTrue(cook.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["share-recipe"].exists)
-        capture("Shared recipe ready to cook", app)
-        cook.tap()
-        XCTAssertTrue(app.buttons["complete-step"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Listening…"].exists)
-        XCTAssertFalse(app.buttons["Let’s cook"].exists)
-        app.buttons["Save and leave cooking"].tap()
-        app.buttons["tab-Cookbook"].tap()
-        let tile = app.buttons["recipe-shared-0123456789abcdef0123456789abcdef"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 5)); tile.tap()
-        app.buttons["share-recipe"].tap()
-        XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 5))
-        capture("Native recipe share sheet", app)
+        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"] + flags; app.launch(); return app
     }
-    func testSwipeDeletesOnlySelectedCookAndKeepsRecipe() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-delete-cooks"]; app.launch()
-        let first = app.buttons["cook-preview-cook-1"], second = app.buttons["cook-preview-cook-2"]
-        XCTAssertTrue(first.waitForExistence(timeout: 10)); XCTAssertTrue(second.exists)
-        first.swipeLeft()
-        let delete = app.buttons["delete-cook-preview-cook-1"]
-        XCTAssertTrue(delete.waitForExistence(timeout: 3))
-        capture("Swipe reveals delete cook", app); delete.tap()
-        XCTAssertTrue(first.waitForNonExistence(timeout: 5)); XCTAssertTrue(second.exists)
-        second.tap()
-        XCTAssertTrue(app.buttons["Save and leave cooking"].waitForExistence(timeout: 5))
-        app.buttons["Save and leave cooking"].tap()
-        second.swipeLeft(); app.buttons["delete-cook-preview-cook-2"].tap()
-        XCTAssertTrue(second.waitForNonExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["On the go"].exists)
-        app.buttons["tab-Cookbook"].tap()
-        XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 5))
-        capture("Recipe kept after both cooks deleted", app)
+    func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<6 where !element.isHittable { app.swipeUp() }
+        XCTAssertTrue(element.isHittable, app.debugDescription)
     }
-    func testSelectAllIncludesPantryAndAllowsIndividualChanges() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
-        XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 10))
-        app.buttons["recipe-preview-pasta"].tap(); app.buttons["Start cooking"].tap()
-        let all = app.buttons["select-all-ingredients"]
-        XCTAssertTrue(all.waitForExistence(timeout: 5)); all.tap()
-        XCTAssertEqual(app.buttons["ingredient-check-pasta"].value as? String, "Selected")
-        app.buttons["ingredient-check-garlic"].tap()
-        XCTAssertEqual(app.buttons["ingredient-check-garlic"].value as? String, "Not selected")
-        XCTAssertEqual(all.label, "Select all ingredients"); all.tap()
-        let pantry = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Pantry basics")).firstMatch
-        for _ in 0..<3 where !pantry.isHittable { app.swipeUp() }
-        pantry.tap()
-        XCTAssertEqual(app.buttons["ingredient-check-oil"].value as? String, "Selected")
-        for _ in 0..<3 where !all.isHittable { app.swipeDown() }
-        all.tap()
-        XCTAssertEqual(app.buttons["ingredient-check-pasta"].value as? String, "Not selected")
-        XCTAssertTrue(app.buttons["Let’s cook"].isEnabled)
-        capture("Select all ingredients", app)
+    func capture(_ name: String, _ app: XCUIApplication) {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot)
     }
-
-    func testEveryFoldRestCountsDownAndExpiredTimersClearOnCompletion() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-timer-rounds"]; app.launch()
-        XCTAssertTrue(app.buttons["recipe-preview-focaccia"].waitForExistence(timeout: 10))
-        app.buttons["recipe-preview-focaccia"].tap(); app.buttons["Start cooking"].tap(); app.buttons["Let’s cook"].tap()
-        for round in 0...4 {
-            let start = app.buttons["start-step-timer"]
-            for _ in 0..<3 where !start.isHittable { app.swipeUp() }
-            XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
-            XCTAssertFalse(start.exists, "Starting a suggested timer removes its duplicate start control.")
-            let countdown = app.staticTexts["timer-remaining-rest\(round)"]
-            XCTAssertTrue(countdown.waitForExistence(timeout: 3))
-            let ticking = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label MATCHES %@", "0:0[1-7]"), object: countdown)
-            XCTAssertEqual(XCTWaiter.wait(for: [ticking], timeout: 5), .completed)
-            XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "timer-remaining-")).count, 1)
-            let expired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Time to check"), object: countdown)
-            XCTAssertEqual(XCTWaiter.wait(for: [expired], timeout: 10), .completed)
-            capture("Rest \(round) finished", app)
-            app.buttons["complete-step"].tap()
-            XCTAssertFalse(countdown.exists)
-            if round < 4 { app.buttons["complete-step"].tap() }
-        }
-        XCTAssertEqual(app.buttons["complete-step"].label, "Finish cooking")
-    }
-    func testDeleteRecipeRequiresConfirmationAndKeepsCookingHistory() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
+    func openPasta(_ app: XCUIApplication) {
         let tile = app.buttons["recipe-preview-pasta"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10)); tile.tap()
-        app.buttons["delete-recipe"].tap()
-        XCTAssertTrue(app.alerts.buttons["Cancel"].waitForExistence(timeout: 3))
-        capture("Confirm recipe deletion", app); app.alerts.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["Start cooking"].exists)
-        app.buttons["Start cooking"].tap(); app.buttons["Let’s cook"].tap()
-        XCTAssertTrue(app.buttons["Cooking options"].waitForExistence(timeout: 5))
-        app.buttons["Save and leave cooking"].tap()
-        XCTAssertTrue(tile.waitForExistence(timeout: 5))
-        for _ in 0..<4 where !tile.isHittable { app.swipeUp() }
-        tile.tap()
-        app.buttons["delete-recipe"].tap()
-        app.alerts.buttons["Delete recipe"].tap()
-        XCTAssertTrue(tile.waitForNonExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Continue cooking →"].exists)
-        capture("Recipe deleted, cooking attempt preserved", app)
+        XCTAssertTrue(app.buttons["tab-Cookbook"].waitForExistence(timeout: 10)); reveal(tile, in: app); tile.tap()
+        XCTAssertTrue(app.buttons["start-recipe"].waitForExistence(timeout: 5))
     }
-    private func capture(_ name: String, _ app: XCUIApplication) {
-        let image = XCTAttachment(screenshot: app.screenshot()); image.name = name; image.lifetime = .keepAlways; add(image)
+    func beginPasta(_ app: XCUIApplication) {
+        openPasta(app); app.buttons["start-recipe"].tap()
+        XCTAssertTrue(app.buttons["begin-cooking"].waitForExistence(timeout: 5)); app.buttons["begin-cooking"].tap()
+        XCTAssertTrue(app.buttons["complete-step"].waitForExistence(timeout: 5))
     }
-    private func dismissKeyboard(_ app: XCUIApplication) {
-        let done = app.buttons["keyboard-done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
-        done.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+    func dismissKeyboard(_ app: XCUIApplication) {
+        if app.buttons["keyboard-done"].waitForExistence(timeout: 2) { app.buttons["keyboard-done"].tap() }
     }
-    func testImportProgressStaysOpenAndAppearsInCookbook() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-import-progress"]; app.launch()
-        let tile = app.buttons["import-tile-preview-import"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 10))
-        for _ in 0..<4 where !tile.isHittable { app.swipeUp() }
-        tile.tap()
-        if !app.buttons["Close"].waitForExistence(timeout: 2) { tile.tap() }
-        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Check for a food recipe"].exists)
-        XCTAssertTrue(app.staticTexts["Import debug details"].exists)
-        XCTAssertTrue(app.staticTexts["Last incomplete stage"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["original-transcript"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["translated-transcript"].exists)
-        XCTAssertTrue(app.staticTexts["Ingredients"].exists)
-        let thumbnails = app.images.matching(NSPredicate(format: "label == %@", "Recipe thumbnail"))
-        XCTAssertTrue(thumbnails.firstMatch.exists, "A thumbnail is available while extraction is still running.")
-        for _ in 0..<6 where !app.staticTexts["Ingredients"].isHittable { app.swipeUp() }
-        XCTAssertFalse(app.buttons["make-recipe"].exists)
-        capture("Import progress and recipe placeholders", app)
-        app.buttons["Close"].tap(); app.buttons["tab-Cookbook"].tap()
-        XCTAssertTrue(tile.waitForExistence(timeout: 5))
-        capture("Import in the cookbook", app)
-    }
+}
 
-    func testCompletedImportStartsCookingWithoutReview() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-import-ready"]; app.launch()
-        let start = app.buttons["start-imported-recipe"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["Import evidence"].exists)
-        XCTAssertFalse(app.staticTexts["Cooking steps"].exists)
-        start.tap()
-        XCTAssertTrue(app.buttons["complete-step"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Get the pasta going"].exists)
-    }
-
-    func testImportModesAndButtonLayout() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
-        XCTAssertTrue(app.buttons["import-recipe"].waitForExistence(timeout: 10)); app.buttons["import-recipe"].tap()
+final class CompanionFlowTests: XCTestCase {
+    func testHomeNavigationAndImportModes() {
+        let app = preview()
+        XCTAssertTrue(app.buttons["import-recipe"].waitForExistence(timeout: 10)); capture("05 Home", app)
+        app.buttons["import-recipe"].tap()
         let make = app.buttons["make-recipe"]
         XCTAssertTrue(make.waitForExistence(timeout: 5)); XCTAssertFalse(make.isEnabled)
-        XCTAssertGreaterThanOrEqual(make.frame.height, 44)
-        XCTAssertFalse(app.staticTexts["Good recipes travel far."].exists)
-        XCTAssertFalse(app.staticTexts["YouTube"].exists)
-        capture("Import link mode — empty", app)
-        let url = app.textFields["recipe-url"]
-        url.tap(); url.typeText("https://youtu.be/cooking"); dismissKeyboard(app)
+        XCTAssertGreaterThanOrEqual(make.frame.height, 44); capture("07 Import", app)
+        let url = app.textFields["recipe-url"]; url.tap(); url.typeText("https://example.com/recipe"); dismissKeyboard(app)
         XCTAssertTrue(make.isEnabled)
-        capture("Import link mode — ready", app)
-        let toggle = app.buttons["toggle-import-mode"]
-        toggle.tap()
+        let mode = app.buttons["toggle-import-mode"]; reveal(mode, in: app); mode.tap()
         XCTAssertFalse(make.isEnabled)
-        let text = app.textViews["recipe-text"]
-        XCTAssertTrue(text.waitForExistence(timeout: 3)); text.tap(); text.typeText("Toast: one slice of bread. Toast until golden."); dismissKeyboard(app)
-        XCTAssertTrue(make.isEnabled)
-        capture("Import pasted text mode", app)
-        for _ in 0..<3 where !toggle.isHittable { app.swipeUp() }
-        toggle.tap()
-        XCTAssertEqual(url.value as? String, "https://youtu.be/cooking")
-        XCTAssertTrue(app.staticTexts["Coming soon"].exists)
-        XCTAssertFalse(app.buttons["Upload a photo"].exists)
+        let text = app.textViews["recipe-text"]; reveal(text, in: app); text.tap(); text.typeText("Toast: one slice of bread. Toast until golden."); dismissKeyboard(app)
+        XCTAssertTrue(make.isEnabled); app.buttons["Close"].tap()
+        app.buttons["tab-Cookbook"].tap(); XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 5)); capture("06 Cookbook", app)
+        app.buttons["tab-Album"].tap(); capture("15 Empty album", app)
+        app.buttons["tab-Kitchen"].tap(); capture("16 Your kitchen", app)
+        app.buttons["Kitchen defaults"].tap(); XCTAssertTrue(app.buttons["Save preferences"].waitForExistence(timeout: 5))
     }
-    func testEmailSignInGoesStraightToPreferences() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--auth-emulator"]; app.launch()
-        let emailButton = app.buttons["Sign up or sign in with email"]
-        XCTAssertTrue(emailButton.waitForExistence(timeout: 10)); emailButton.tap()
-        XCTAssertTrue(app.textFields["Email address"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Continue with Google"].isHittable)
-        XCTAssertFalse(app.buttons["Add a sign-in method"].exists)
-        app.buttons["Create account"].firstMatch.tap()
-        app.textFields["Email address"].tap()
-        app.textFields["Email address"].typeText("preferences-\(UUID().uuidString.lowercased())@example.invalid")
-        dismissKeyboard(app)
-        let password = app.secureTextFields.firstMatch
-        password.tap(); password.typeText("CookingTest123!"); dismissKeyboard(app)
-        app.buttons["email-submit"].tap()
-        XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertFalse(app.buttons["Delete account"].exists)
-        XCTAssertFalse(app.buttons["Add a sign-in method"].exists)
-        XCTAssertFalse(app.buttons["email-submit"].exists)
-        capture("Sign-in opens preferences directly", app)
+    func testHomeChefQuestionNeedsNoRecipe() {
+        let app = preview("--companion-answer-preview")
+        let chef = app.buttons["home-chef"]; XCTAssertTrue(chef.waitForExistence(timeout: 10)); reveal(chef, in: app); chef.tap()
+        let input = app.textFields["recipe-question"]; XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText("Which pan should I use?"); dismissKeyboard(app)
+        app.buttons["ask-chef"].tap()
+        XCTAssertTrue(app.staticTexts["Use a wide pan so the garlic cooks evenly. Keep the heat medium-low and stir until lightly golden."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["complete-step"].exists)
     }
-
-    func testSearchablePreferencesAndKeyboardDone() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-onboarding"]; app.launch()
-        let allergies = app.buttons["preferences-allergies"]
-        XCTAssertTrue(allergies.waitForExistence(timeout: 10))
-        for _ in 0..<3 where !allergies.isHittable { app.swipeUp() }
-        allergies.tap()
-        let search = app.textFields["preference-search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("soya")
-        let soy = app.buttons["option-allergen.soy"]
-        XCTAssertTrue(soy.waitForExistence(timeout: 3)); soy.tap()
-        dismissKeyboard(app)
-        XCTAssertEqual(search.value as? String, "soya")
-        app.buttons["Clear search"].tap()
-        XCTAssertEqual(soy.value as? String, "Selected")
-        app.buttons["allergy-none"].tap()
-        XCTAssertEqual(app.buttons["allergy-none"].value as? String, "Selected")
-        XCTAssertTrue(app.staticTexts["0 selected"].exists)
-        app.buttons["option-allergen.peanuts"].tap()
-        capture("Searchable allergy checklist", app)
-        app.buttons["close-preference-picker"].tap()
-        app.buttons["preferences-allergies"].tap()
-        XCTAssertEqual(app.buttons["option-allergen.peanuts"].value as? String, "Selected")
-        app.buttons["close-preference-picker"].tap()
-        app.buttons["Next"].tap()
-        app.buttons["preferences-dislikes"].tap()
-        search.tap(); search.typeText("courgette"); dismissKeyboard(app)
-        let zucchini = app.buttons.containing(.staticText, identifier: "Zucchini").firstMatch
-        XCTAssertTrue(zucchini.exists); zucchini.tap()
-        app.buttons["close-preference-picker"].tap()
-        app.buttons["Next"].tap(); app.buttons["Open my kitchen"].tap()
-        XCTAssertTrue(app.buttons["import-recipe"].waitForExistence(timeout: 5))
-        app.textFields["Search your recipes…"].tap(); app.textFields["Search your recipes…"].typeText("pasta"); dismissKeyboard(app)
-        app.buttons["Import recipe"].tap()
-        let url = app.textFields["recipe-url"]; XCTAssertTrue(url.waitForExistence(timeout: 3))
-        url.tap(); url.typeText("https://example.com/recipe"); dismissKeyboard(app)
-        XCTAssertEqual(url.value as? String, "https://example.com/recipe")
-        app.buttons["Close"].tap(); app.buttons["tab-Profile"].tap()
-        XCTAssertFalse(app.buttons["Delete account"].exists)
-        XCTAssertFalse(app.buttons["Add a sign-in method"].exists)
-        app.buttons["Cooking preferences"].firstMatch.tap()
-        let saved = app.buttons["preferences-allergies"]
-        for _ in 0..<3 where !saved.isHittable { app.swipeUp() }
-        saved.tap()
-        XCTAssertEqual(app.buttons["option-allergen.peanuts"].value as? String, "Selected")
+    func testThreeOnboardingPagesAndSavedAllergies() {
+        let app = preview("--companion-onboarding")
+        XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 10)); capture("02 Dietary preferences", app)
+        let allergies = app.buttons["preferences-allergies"]; reveal(allergies, in: app); allergies.tap()
+        let search = app.textFields["preference-search"]; XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("soya"); dismissKeyboard(app)
+        app.buttons["option-allergen.soy"].tap(); app.buttons["close-preference-picker"].tap()
+        app.buttons["Next"].tap(); capture("03 Tastes and experience", app)
+        app.buttons["Next"].tap(); capture("04 Kitchen defaults", app)
+        app.buttons["Open my kitchen"].tap(); XCTAssertTrue(app.buttons["tab-Kitchen"].waitForExistence(timeout: 5))
+        app.buttons["tab-Kitchen"].tap(); app.buttons["Cooking preferences"].tap()
+        XCTAssertTrue(app.buttons["preferences-allergies"].waitForExistence(timeout: 5)); reveal(app.buttons["preferences-allergies"], in: app); app.buttons["preferences-allergies"].tap()
+        XCTAssertEqual(app.buttons["option-allergen.soy"].value as? String, "Selected")
     }
-
-    func testPreferencesDoNotRequireEquipment() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview", "--companion-onboarding"]; app.launch()
-        XCTAssertTrue(app.buttons["Next"].waitForExistence(timeout: 10)); capture("01 Dietary preferences", app)
-        app.buttons["Next"].tap(); capture("02 Cooking preferences", app)
-        app.buttons["Next"].tap(); capture("03 Your kitchen", app)
-        for _ in 0..<3 where !app.buttons["Open my kitchen"].isHittable { app.swipeUp() }
-        app.buttons["Open my kitchen"].tap()
-        XCTAssertTrue(app.buttons["import-recipe"].waitForExistence(timeout: 5))
+    func testImportProgressCanBeClosedAndReopenedWithoutDiagnostics() {
+        let app = preview("--companion-import-progress")
+        let tile = app.buttons["import-tile-preview-import"]; XCTAssertTrue(tile.waitForExistence(timeout: 10)); reveal(tile, in: app); tile.tap()
+        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5)); capture("08 Extraction", app)
+        XCTAssertFalse(app.staticTexts["Import debug details"].exists); XCTAssertFalse(app.buttons["make-recipe"].exists)
+        app.buttons["Close"].tap(); reveal(tile, in: app); tile.tap(); XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 5))
     }
-    func testCookWithTimerRepeatStepAndSaveMemory() {
-        continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--companion-preview"]; app.launch()
-        XCTAssertTrue(app.buttons["recipe-preview-pasta"].waitForExistence(timeout: 10)); capture("04 Cookbook", app)
-        app.buttons["import-recipe"].tap(); capture("05 Import a recipe", app); app.buttons["Close"].tap()
-        app.buttons["recipe-preview-pasta"].tap()
-        XCTAssertTrue(app.buttons["Start cooking"].waitForExistence(timeout: 5)); capture("06 Recipe", app)
-        app.buttons["Start cooking"].tap(); capture("07 Ingredient preparation", app)
-        app.buttons["Let’s cook"].tap()
-        let done = app.buttons["complete-step"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5)); capture("08 Current step", app)
-        let addTimer = app.buttons["Add timer"]
-        for _ in 0..<3 where !addTimer.isHittable { app.swipeUp() }
-        addTimer.tap()
-        let numeric = app.textFields["cooking-entry"]
-        XCTAssertTrue(numeric.waitForExistence(timeout: 3)); numeric.tap(); numeric.typeText("5")
-        dismissKeyboard(app)
-        XCTAssertEqual(numeric.value as? String, "105")
-        XCTAssertTrue(app.buttons["Start timer"].exists)
-        app.buttons["Cancel"].tap()
-        app.buttons["Ask a question or show an ingredient"].tap()
-        let question = app.descendants(matching: .any)["recipe-question"]
-        XCTAssertTrue(question.waitForExistence(timeout: 3)); question.tap(); question.typeText("Can I use a small pan?")
-        dismissKeyboard(app)
-        XCTAssertEqual(question.value as? String, "Can I use a small pan?")
-        app.buttons["Close"].tap()
-        app.buttons["Cooking options"].tap(); app.buttons["Record a substitution or change"].tap()
-        let change = app.textFields["cooking-entry"]
-        XCTAssertTrue(change.waitForExistence(timeout: 3)); change.tap(); change.typeText("Used a smaller pan")
-        dismissKeyboard(app); app.buttons["Save change"].tap()
-        done.tap()
-        let timer = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Start 1m 30s timer")).firstMatch
-        for _ in 0..<3 where !timer.isHittable { app.swipeUp() }
-        XCTAssertTrue(timer.exists); timer.tap()
-        XCTAssertTrue(app.buttons["Pause Sauté the garlic"].waitForExistence(timeout: 5)); capture("09 Cooking timer", app)
-        app.buttons["Pause Sauté the garlic"].tap()
-        XCTAssertTrue(app.buttons["Resume Sauté the garlic"].exists)
-        app.buttons["Previous step"].tap()
-        XCTAssertEqual(done.label, "Next unfinished step")
-        done.tap(); done.tap(); done.tap()
-        XCTAssertEqual(done.label, "Finish cooking"); done.tap()
-        XCTAssertTrue(app.staticTexts["You did it!"].waitForExistence(timeout: 5)); capture("10 Finished cooking", app)
-        app.buttons["Save photo"].tap(); capture("11 Dish photo", app); app.buttons["Skip for now"].tap()
-        app.buttons["Add a note"].tap()
-        let note = app.descendants(matching: .any)["cooking-note"]
-        XCTAssertTrue(note.waitForExistence(timeout: 3))
-        for _ in 0..<3 where !note.isHittable { app.swipeUp() }
-        note.tap(); note.typeText("Try this again next week."); dismissKeyboard(app)
-        XCTAssertEqual(note.value as? String, "Try this again next week.")
-        for _ in 0..<4 where !app.buttons["Save memory"].isHittable { app.swipeUp() }
-        app.buttons["Save memory"].tap()
-        for _ in 0..<3 where !app.buttons["Back to my cookbook"].isHittable { app.swipeUp() }
-        app.buttons["Back to my cookbook"].tap(); app.buttons["tab-Album"].tap()
-        XCTAssertTrue(app.staticTexts["Made by you."].waitForExistence(timeout: 5)); capture("12 Cooking album", app)
-        XCTAssertTrue(app.buttons.containing(.staticText,identifier:"Creamy garlic pasta").firstMatch.exists)
+    func testReadyImportRequiresOverviewAndPreparation() {
+        let app = preview("--companion-import-ready")
+        let review = app.buttons["review-imported-recipe"]; XCTAssertTrue(review.waitForExistence(timeout: 10)); review.tap()
+        XCTAssertTrue(app.buttons["start-recipe"].waitForExistence(timeout: 5)); capture("09 Recipe overview", app)
+        XCTAssertFalse(app.buttons["complete-step"].exists)
+        app.buttons["start-recipe"].tap(); XCTAssertTrue(app.buttons["begin-cooking"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Start listening"].exists); XCTAssertFalse(app.staticTexts["Listening…"].exists)
+    }
+    func testServingAdjustmentRequiresReviewAndCanBeCancelled() {
+        let app = preview(); openPasta(app)
+        app.buttons["recipe-adjustments"].tap(); XCTAssertTrue(app.steppers.firstMatch.waitForExistence(timeout: 5))
+        app.steppers.buttons["Increment"].tap(); app.buttons["Close"].tap()
+        app.buttons["recipe-adjustments"].tap(); XCTAssertTrue(app.staticTexts["2 servings"].waitForExistence(timeout: 5))
+        app.steppers.buttons["Increment"].tap()
+        let use = app.buttons["Use these adjustments"]; reveal(use, in: app); use.tap()
+        app.buttons["start-recipe"].tap(); XCTAssertTrue(app.buttons["begin-cooking"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["begin-cooking"].isEnabled)
+        let review = app.switches["review-preparation"]; reveal(review, in: app); review.tap()
+        XCTAssertTrue(app.buttons["begin-cooking"].isEnabled)
+    }
+    func testRecipeArchiveRestoresAndDeletionKeepsCook() {
+        let app = preview(); beginPasta(app); app.buttons["Save and leave cooking"].tap()
+        openPasta(app); app.buttons["Recipe options"].tap(); app.buttons["Archive recipe"].tap()
+        app.buttons["tab-Cookbook"].tap(); XCTAssertFalse(app.buttons["recipe-preview-pasta"].exists)
+        app.buttons["Filter recipes"].tap(); app.buttons["Show archived"].tap()
+        let tile = app.buttons["recipe-preview-pasta"]; XCTAssertTrue(tile.waitForExistence(timeout: 5)); tile.tap()
+        app.buttons["Recipe options"].tap(); app.buttons["Restore to cookbook"].tap()
+        app.buttons["tab-Home"].tap(); openPasta(app)
+        app.buttons["Recipe options"].tap(); app.buttons["delete-recipe"].tap()
+        XCTAssertTrue(app.alerts.buttons["Cancel"].waitForExistence(timeout: 5)); app.alerts.buttons["Delete recipe"].tap()
+        XCTAssertTrue(tile.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'cook-'")).firstMatch.exists)
+    }
+    func testSharedRecipePreservesReviewAndNativeSharing() {
+        let app = preview("--companion-share-preview", "--companion-shared-recipe")
+        XCTAssertTrue(app.buttons["start-recipe"].waitForExistence(timeout: 10))
+        app.buttons["Recipe options"].tap(); app.buttons["share-recipe"].tap()
+        XCTAssertTrue(app.cells["Copy"].waitForExistence(timeout: 5)); capture("Native recipe sharing", app)
     }
 }

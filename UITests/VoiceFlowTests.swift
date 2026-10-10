@@ -1,74 +1,45 @@
 import XCTest
 
 final class VoiceFlowTests: XCTestCase {
-    func testPermissionFailureStaysVisibleAndCloses() throws {
-        #if !targetEnvironment(simulator)
-        throw XCTSkip("Permission-denied check runs on an isolated simulator.")
-        #endif
-        let app = openVoice()
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let deny = springboard.alerts.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Don'")).firstMatch
-        if deny.waitForExistence(timeout: 2) { deny.tap() }
-        XCTAssertTrue(app.staticTexts["Allow microphone access in Settings to use voice."].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Open Settings"].exists)
-        XCTAssertEqual(app.descendants(matching: .any)["microphone-state"].label, "Microphone off")
-        capture(app, name: "Voice permission error stays visible")
-        app.buttons["Close voice"].tap()
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["Close voice"])
-        waitForExpectations(timeout: 5)
-        XCTAssertTrue(app.buttons["Start voice commands"].exists || app.buttons["Start voice guidance"].exists)
-        XCTAssertFalse(app.buttons["Close voice"].exists)
-        if app.buttons["End cooking session"].exists {
-            app.buttons["End cooking session"].tap()
-            app.buttons["End session and cancel its reminders"].tap()
-        }
-        XCTAssertTrue(app.buttons["Start voice commands"].waitForExistence(timeout: 5))
-        capture(app, name: "Bottom navigation after closing voice")
+    func testInlineListeningPreservesStepAndExplicitMute() {
+        let app = preview(); beginPasta(app)
+        app.buttons["Start listening"].tap()
+        XCTAssertTrue(app.staticTexts["Listening…"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["current-step-instruction"].isHittable)
+        XCTAssertTrue(app.buttons["complete-step"].isHittable)
+        XCTAssertFalse(app.staticTexts["· Microphone on"].exists, "Preview never captures real microphone audio.")
+        capture("12 Inline voice listening", app)
+        app.buttons["Stop listening"].tap(); XCTAssertTrue(app.staticTexts["Microphone off"].exists)
+        app.buttons["complete-step"].tap(); XCTAssertEqual(app.staticTexts["current-step-title"].label, "Sauté the garlic")
     }
-
-    func testLiveVoiceOnDevice() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["OUI_CHEF_LIVE_VOICE_TEST"] == "1", "Opt-in paid device voice check.")
-        let app = openVoice()
-        let indicator = app.descendants(matching: .any)["microphone-state"]
-        let connected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Microphone on'"), object: indicator)
-        let result = XCTWaiter.wait(for: [connected], timeout: 25)
-        capture(app, name: "Device voice connection")
-        if app.buttons["Development tester ID"].exists {
-            app.buttons["Development tester ID"].tap()
-            let id = app.staticTexts["development-tester-id"].label
-            let attachment = XCTAttachment(string: id)
-            attachment.name = "Voice tester ID"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-        }
-        let status = app.staticTexts["voice-status"].label
-        app.buttons["Close voice"].tap()
-        XCTAssertEqual(result, .completed, status)
+    func testChefReplyStaysInsideCooking() {
+        let app = preview("--companion-answer-preview"); beginPasta(app)
+        let question = app.buttons["Ask a question or show an ingredient"]; reveal(question, in: app); question.tap()
+        let input = app.textFields["recipe-question"]; reveal(input, in: app); input.tap(); input.typeText("Which pan should I use?"); dismissKeyboard(app)
+        let send = app.buttons["ask-chef"]; reveal(send, in: app); send.tap()
+        XCTAssertTrue(app.buttons["compact-chef-answer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["complete-step"].isHittable)
+        for _ in 0..<3 { app.swipeDown() }; capture("13 Contextual chef reply", app)
+        XCTAssertEqual(app.staticTexts["current-step-title"].label, "Get the pasta going")
+        app.buttons["compact-chef-answer"].tap(); XCTAssertTrue(app.buttons["Back to cooking"].waitForExistence(timeout: 5)); app.buttons["Back to cooking"].tap()
+        XCTAssertTrue(app.buttons["complete-step"].exists)
     }
-
-    private func openVoice() -> XCUIApplication {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launch()
-        if app.buttons["Get started"].waitForExistence(timeout: 3) {
-            app.buttons["Get started"].tap()
-            for _ in 0..<5 { app.buttons["Continue"].tap() }
-            app.buttons["Let's cook together"].tap()
-        }
-        let button = app.buttons["Start voice commands"].exists ? app.buttons["Start voice commands"] : app.buttons["Start voice guidance"]
-        for _ in 0..<8 {
-            if button.isHittable { break }
-            app.swipeUp()
-        }
-        button.tap()
-        XCTAssertTrue(app.buttons["Close voice"].waitForExistence(timeout: 5))
-        return app
+    func testLargeTextKeepsCookingControlsReachable() {
+        let app = preview("-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL")
+        beginPasta(app)
+        XCTAssertTrue(app.buttons["complete-step"].isHittable)
+        XCTAssertTrue(app.buttons["Start listening"].isHittable)
+        let next = app.buttons["complete-step"]
+        let label = next.staticTexts["Next"]
+        XCTAssertTrue(label.exists)
+        XCTAssertTrue(next.frame.contains(label.frame), "The Next label must stay inside its touch target.")
+        capture("Cooking with accessibility text", app)
     }
-
-    private func capture(_ app: XCUIApplication, name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+    func testVoiceErrorKeepsManualCookingUsable() {
+        let app = preview("--companion-voice-error"); beginPasta(app); app.buttons["Start listening"].tap()
+        XCTAssertTrue(app.staticTexts["Voice unavailable"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["complete-step"].isEnabled); app.buttons["complete-step"].tap()
+        XCTAssertEqual(app.staticTexts["current-step-title"].label, "Sauté the garlic")
+        let retry = app.buttons["Try voice again"]; reveal(retry, in: app); capture("Voice manual fallback", app)
     }
 }

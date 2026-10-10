@@ -1,6 +1,6 @@
 # Oui Chef
 
-An iOS AI cooking companion: import a recipe link, review its ingredients, cook with persistent steps and timers, and save the finished dish in a private album. Equipment is optional. The app uses native SwiftUI, Firebase Auth/Firestore/Storage, and xAI.
+An iOS AI cooking companion: import a recipe link, review its ingredients, cook with persistent steps and timers, and save the finished dish in a private album. Equipment preferences are optional. The app uses native SwiftUI, Firebase Auth/Firestore/Storage, and xAI.
 
 Recipe sharing uses Firebase Hosting links to save and open an already parsed recipe in another account. In-progress cooking sessions support native swipe-to-delete. See [recipe sharing and session deletion](docs/RECIPE_SHARING.md) for the beta flow, deployment, and checks.
 
@@ -9,6 +9,8 @@ Recipe sharing uses Firebase Hosting links to save and open an already parsed re
 Open **OuiChef.xcodeproj**, choose **OuiChef**, select an iPhone or simulator, and press Run. Deployment target: iOS 17+. Automatic signing uses team `84KXUNPGCM` and bundle ID `com.xie.ouichef`. The bundled Share Extension uses `com.xie.ouichef.share`; both targets share the App Group `group.com.xie.ouichef`.
 
 See [the companion design and implementation](docs/COMPANION_REDESIGN.md) for the complete import pipeline, data model, provider tracking, beta limits, and deployment requirements. [TestFlight release records](docs/TESTFLIGHT.md) contain build receipts and archive locations.
+
+The implemented [Berry / Deep Plum design migration](docs/BERRY_PLUM_MIGRATION.md) covers the October 2026 design boards and revised 16-screen specification, including inline voice, persistent preparation, reversible portions, cooking memories, data compatibility, and remaining release checks. This migration is local; it has not been deployed.
 
 ## Product flow
 
@@ -28,7 +30,7 @@ On September 20, all Firestore data was backed up and cleared, Firebase Auth acc
 
 ## Checks
 
-The redesign passed 27 Swift core tests, 23 backend/rules tests, both new simulator UI journeys, and live xAI extraction, research, and transcription checks. The signed Release archive includes the Share Extension.
+The September release checks are recorded in the historical release documents. Current Berry/Plum verification is recorded in the migration document; those checks do not establish the status of the hosted backend or live voice.
 
 ```sh
 swift test
@@ -36,6 +38,6 @@ npm ci --prefix backend
 npm test --prefix backend
 ```
 
-Run the new UI suite with `-only-testing:OuiChefUITests/CompanionFlowTests`. Rules tests require isolated Firestore/Storage emulators and the existing catalog test seed; details are in [verification](docs/COMPANION_REDESIGN.md#verification). Older UI suites exercise the retired catalog screens. Debug preview arguments `--companion-preview --companion-onboarding` provide an offline sample without cloud writes.
+Run the simulator UI suites with the OuiChef scheme. Rules tests require isolated Firestore/Storage emulators and the existing catalog test seed; details are in [verification](docs/COMPANION_REDESIGN.md#verification). All four UI suites now exercise the redesigned companion. Debug preview arguments `--companion-preview --companion-onboarding` provide an offline sample without cloud writes.
 
-Physical-device social sharing, microphone interruptions, and locked-phone timer alerts still need device acceptance checks. Legacy catalog code and its historical design documents remain in the repository; the redesigned app uses the private cookbook flow.
+Physical-device social sharing, microphone interruptions, and locked-phone timer alerts still need device acceptance checks. Legacy catalog core/backend contracts and historical design documents remain in the repository; the redesigned app uses the private cookbook flow.

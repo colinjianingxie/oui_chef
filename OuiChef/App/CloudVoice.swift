@@ -25,10 +25,22 @@ final class CloudVoice {
     private var waitingForReady = true
     private var captureStarted = false
     private var configurationObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
+    private var routeObserver: NSObjectProtocol?
+    private var responseFinished = true
+    private var spokenAnswers = true
     private var outputQueue: AsyncStream<URLSessionWebSocketTask.Message>.Continuation?
     var uid: String? { account.uid }
 
     init() {
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let value = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt, value == AVAudioSession.InterruptionType.began.rawValue else { return }
+            Task { @MainActor in guard let self, self.socket != nil else { return }; self.fail("Audio was interrupted. Tap to reconnect when you’re ready; your timers keep running.") }
+        }
+        routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt, value == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+            Task { @MainActor in guard let self, self.socket != nil else { return }; self.fail("Your audio device disconnected. Tap to reconnect voice.") }
+        }
         configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.socket != nil, self.tapInstalled, !self.engine.isRunning else { return }
@@ -46,9 +58,12 @@ final class CloudVoice {
 
     deinit {
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
     }
 
     func start(context: [String: Any]) async throws {
+        spokenAnswers = (context["profile"] as? [String: Any])?["spokenAnswers"] as? Bool ?? true
         guard let endpoint = CloudVoiceAccount.endpoint else { throw CookingError.invalid("Cloud voice is not configured.") }
         let current = UUID()
         generation = current
@@ -120,11 +135,16 @@ final class CloudVoice {
             waitingForReady = false
             return // Report ready only after the first microphone packet has been sent.
         case "audio":
+            guard spokenAnswers else { return }
             if let response = event["responseID"] as? String, interruptedResponses.contains(response) { return }
             currentResponse = event["responseID"] as? String
             guard let raw = event["audio"] as? String, let data = Data(base64Encoded: raw), data.count % 2 == 0 else { return }
             try play(data, item: event["itemID"] as? String)
-        case "responding": currentResponse = event["responseID"] as? String
+        case "responding": currentResponse = event["responseID"] as? String; responseFinished = false
+        case "response_done":
+            guard event["responseID"] as? String == currentResponse else { return }
+            responseFinished = true
+            if queuedBuffers == 0 { onEvent?(["type": "playback_finished"]) }
         case "speech_started": interrupt(cancelResponse: false)
         case "ended", "error":
             onEvent?(event)
@@ -200,7 +220,7 @@ final class CloudVoice {
             Task { @MainActor in
                 guard let self, self.audioGeneration == current else { return }
                 self.queuedBuffers = max(0, self.queuedBuffers - 1)
-                if self.queuedBuffers == 0 { self.onEvent?(["type": "playback_finished"]) }
+                if self.queuedBuffers == 0 && self.responseFinished { self.onEvent?(["type": "playback_finished"]) }
             }
         }
         if !player.isPlaying { player.play() }
@@ -215,6 +235,7 @@ final class CloudVoice {
         }
         send(event)
         audioGeneration = UUID()
+        responseFinished = true
         player.stop()
         queuedBuffers = 0; currentItem = nil; receivedFrames = 0; playbackStart = 0
         if engine.isRunning { player.play() }

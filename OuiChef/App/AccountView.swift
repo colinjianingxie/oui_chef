@@ -42,9 +42,10 @@ struct AccountView: View {
                     } else {
                         providerChoices
                     }
+                    LegalLinks()
                     if account.busy { ProgressView().frame(maxWidth: .infinity) }
                     if let error = account.error { Text(error).font(.subheadline).foregroundStyle(.red).accessibilityIdentifier("account-error") }
-                    if let notice = account.notice { Text(notice).font(.subheadline).foregroundStyle(Theme.green).accessibilityIdentifier("account-notice") }
+                    if let notice = account.notice { Text(notice).font(.subheadline).foregroundStyle(Theme.plum).accessibilityIdentifier("account-notice") }
                 }.padding(24)
             }
             .scrollBounceBehavior(.basedOnSize).background(Theme.cream).foregroundStyle(Theme.ink).keyboardDone()

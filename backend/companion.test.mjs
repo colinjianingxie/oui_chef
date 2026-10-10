@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeURL, publicAddress, sourceName, importInput, captionText, captionTracks, readCaptions, sampleSeconds, mediaFormat, retrievalError, descriptionLinks } from './import-source.mjs';
-import { classifySource, extractRecipe, validateRecipe, validateSourceCoverage, validateSourceReview } from './recipe-agent.mjs';
+import { classifySource, extractRecipe, validateRecipe, validateSourceCoverage, validateSourceReview, answerQuestion } from './recipe-agent.mjs';
 import { importTaskID, handleCompanion, runImport } from './companion.mjs';
 import { sessionUpdate } from './xai.mjs';
 
@@ -138,7 +138,7 @@ test('shared recipes are reused only with source coverage, free imports count pe
   const urls=['https://www.youtube.com/watch?v=d31CCyGSGZA','https://www.youtube.com/watch?v=W_-D8PZwtSY'];
   const recipe={title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'1 cup'}],steps:[{id:'mix',instruction:'Mix.',ingredients:[{ingredientID:'flour',quantity:'1 cup'}]}],imageURL:'https://example.com/cover.jpg'};
   const records=new Map();
-  for(const url of urls)records.set('sharedRecipes/'+createHash('sha256').update(`companion-13\0${url}\0{}`).digest('hex'),{payload:JSON.stringify(recipe),debug:{originalTranscript:'[1s] 面粉。',transcriptLanguage:'zh-CN',sourcePlan:sourceRecord(recipe),sourcePassageIDs:['p1'],sourceReview:[{passageID:'p1',kind:'covered',stepIDs:recipe.steps.map(step=>step.id),ingredientIDs:[],reason:''}]}});
+  for(const url of urls)records.set('sharedRecipes/'+createHash('sha256').update(`companion-14\0${url}\0{}`).digest('hex'),{payload:JSON.stringify(recipe),debug:{originalTranscript:'[1s] 面粉。',transcriptLanguage:'zh-CN',sourcePlan:sourceRecord(recipe),sourcePassageIDs:['p1'],sourceReview:[{passageID:'p1',kind:'covered',stepIDs:recipe.steps.map(step=>step.id),ingredientIDs:[],reason:''}]}});
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value),update:(ref,value)=>records.set(ref.path,{...records.get(ref.path),...value}),delete:ref=>records.delete(ref.path)})};
   async function call(uid,url,admin=false){let status,body;await handleCompanion({url:'/companion/import',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({url}));}},{writeHead:code=>status=code,end:value=>body=JSON.parse(value)},{db,auth:{verifyIdToken:async()=>({uid,admin,firebase:{sign_in_provider:'password'}})}});return {status,body};}
   const first=await call('free',urls[0]);assert.equal(first.status,200);assert.equal(first.body.cached,true);
@@ -156,14 +156,14 @@ test('shared recipes are reused only with source coverage, free imports count pe
   await handleCompanion({url:'/companion/delete-recipe',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({id}));}},{writeHead:code=>deleteStatus=code,end:()=>{}},{db,auth:{verifyIdToken:async()=>({uid:'free',firebase:{sign_in_provider:'password'}})}});
   assert.equal(deleteStatus,200);
   assert.equal(records.get(`users/free/cookbook/${id}`).deleted,true);
-  assert.equal(records.has('sharedRecipes/'+createHash('sha256').update(`companion-13\0${urls[0]}\0{}`).digest('hex')),true);
+  assert.equal(records.has('sharedRecipes/'+createHash('sha256').update(`companion-14\0${urls[0]}\0{}`).digest('hex')),true);
   assert.equal((await call('free',urls[0])).status,400);
   records.set('importLimits/free',{day:'2000-01-01',count:1});
   assert.equal((await call('free',urls[0])).status,200);
   const key=process.env.XAI_API_KEY;
   t.after(()=>{if(key===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=key;});
   delete process.env.XAI_API_KEY;
-  const shared='sharedRecipes/'+createHash('sha256').update(`companion-13\0${urls[0]}\0{}`).digest('hex');
+  const shared='sharedRecipes/'+createHash('sha256').update(`companion-14\0${urls[0]}\0{}`).digest('hex');
   for(const mode of ['missing-record','lost-action','missing-review','lost-passage','old-version']) {
     const cached=structuredClone(records.get(shared));
     if(mode==='missing-record')delete cached.debug.sourcePlan;
@@ -250,6 +250,8 @@ test('normalization cannot drop or rewrite the independently extracted source ac
     };
     if(mode==='valid') {
       const result=await extractRecipe(db,'test','focaccia',evidence,{});
+      assert.deepEqual(result.recipe.personalizationProfile,{});
+      assert.deepEqual(result.recipe.originalSource.ingredients,result.sourcePlan.ingredients);
       assert.deepEqual(result.recipe.steps.map(step=>step.id),['mix','rest0','fold1','rest1','fold2','rest2','fold3','rest3','fold4','rest4']);
       assert.deepEqual(result.sourcePlan,sourcePlan);
       assert.equal(result.recipe.steps.filter(step=>step.durationSeconds===1800).length,5);
@@ -528,7 +530,7 @@ for(mode of ['food','html','research','research-failed','broken-link','unknown',
   events=[];
   const path='users/owner/imports/check', records=new Map([[path,{url:'https://www.youtube.com/watch?v=W_-D8PZwtSY',source:'YouTube',status:'queued',attempt:1}]]);
   if(mode==='spanish')records.set('users/owner/settings/cooking',{payload:JSON.stringify({voiceLanguage:'Spanish'})});
-  const staleCache='sharedRecipes/${createHash('sha256').update('companion-13\0https://www.youtube.com/watch?v=W_-D8PZwtSY\0{}').digest('hex')}';
+  const staleCache='sharedRecipes/${createHash('sha256').update('companion-14\0https://www.youtube.com/watch?v=W_-D8PZwtSY\0{}').digest('hex')}';
   if(mode==='stale-cache')records.set(staleCache,{payload:'invalid cached recipe'});
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)}),set:async value=>records.set(path,value),update:async value=>records.set(path,{...records.get(path),...value}),collection:name=>({doc:id=>db.doc(path+'/'+name+'/'+id)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>ref.set(value),update:(ref,value)=>ref.update(value)})};
   globalThis.fetch=async(url,request)=>{
@@ -599,4 +601,36 @@ for(mode of ['food','html','research','research-failed','broken-link','unknown',
   }
 }
 ` ,stdio:'pipe'});
+});
+
+
+test('general cooking help accepts no active recipe and carries explicit preferences',async t=>{
+  t.mock.method(globalThis,'fetch',async(_url,options)=>{
+    const body=JSON.parse(options.body),context=JSON.parse(body.messages[1].content[0].text);
+    assert.equal(context.recipe,null);assert.equal(context.profile.customAllergies,'Kiwi');
+    assert.match(body.messages[0].content,/Never invent an active recipe/);
+    return {ok:true,status:200,json:async()=>({choices:[{message:{content:'Use a wide pan.'}}]})};
+  });
+  const old=process.env.XAI_API_KEY;process.env.XAI_API_KEY='test-key';t.after(()=>{if(old===undefined)delete process.env.XAI_API_KEY;else process.env.XAI_API_KEY=old;});
+  const db={doc:()=>({set:async()=>{},update:async()=>{}})};
+  assert.equal((await answerQuestion(db,'cook',{question:'Which pan should I use?',recipe:null,profile:{customAllergies:'Kiwi'}})).answer,'Use a wide pan.');
+  await assert.rejects(answerQuestion(db,'cook',{question:' ',recipe:null}));
+});
+
+
+test('photo removal targets its saved generation and cannot delete a concurrent replacement',async()=>{
+  const records=new Map(),deletions=[];
+  const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value)})};
+  const storage={bucket:()=>({file:path=>({delete:async options=>{deletions.push({path,options});throw Object.assign(new Error('Replaced'),{code:412});}})})};
+  const recipe={id:'bread',title:'Bread',ingredients:[{id:'flour',name:'Flour',quantity:'500 g'}],steps:[{id:'mix',instruction:'Mix.',ingredients:[]}]};
+  async function sync(id,photoGeneration){
+    let status;
+    const payload=JSON.stringify({id,recipe,events:[],timers:[],photoRemoved:true,photoGeneration});
+    await handleCompanion({url:'/companion/sync',method:'POST',headers:{authorization:'Bearer test'},async *[Symbol.asyncIterator](){yield Buffer.from(JSON.stringify({id,payload,expectedRevision:0}));}},
+      {writeHead:code=>status=code,end:()=>{}},{db,storage,auth:{verifyIdToken:async()=>({uid:'owner',firebase:{sign_in_provider:'password'}})}});
+    return status;
+  }
+  assert.equal(await sync('cook1','12345678901234567'),200);
+  assert.deepEqual(deletions,[{path:'users/owner/cooks/cook1/dish.jpg',options:{ignoreNotFound:true,ifGenerationMatch:'12345678901234567'}}]);
+  assert.equal(await sync('legacy',undefined),200);assert.equal(deletions.length,1);
 });

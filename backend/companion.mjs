@@ -8,7 +8,7 @@ const allowedID = value => typeof value==='string' && /^[A-Za-z0-9_-]{1,128}$/.t
 export const importTaskID = (uid,id,attempt) => `import-${createHash('sha256').update(uid).digest('hex').slice(0,24)}-${id}-${attempt}`;
 const signature = body => createHmac('sha256',process.env.XAI_API_KEY??'').update('oui-import:'+body).digest('hex');
 const importDay = () => new Date().toISOString().slice(0,10);
-const sharedRecipeID = (url,text,profile) => url && !text ? createHash('sha256').update(`companion-13\0${url}\0${profile}`).digest('hex') : null;
+const sharedRecipeID = (url,text,profile) => url && !text ? createHash('sha256').update(`companion-14\0${url}\0${profile}`).digest('hex') : null;
 const activeImport = (limit,id,attempt) => limit?.activeID===id && limit?.activeAttempt===attempt;
 const importDebug = data => Object.fromEntries(['sourceTitle','previewCreator','sourceDurationSeconds','sourceExtractor','sourceText','originalTranscript','transcriptLanguage','translatedTranscript','translationLanguage','videoObservations','frameSeconds','retrieval','retrievalErrors','scope','scopeReason','recipeTitle','previewSummary','previewIngredients','previewSteps','sourcePlan','sourceRunID','sourcePassageIDs','sourceReview','extractionReason','failurePoint'].filter(key=>data[key]!==undefined).map(key=>[key,data[key]]));
 async function releaseImport(db,uid,id,attempt) {
@@ -228,7 +228,7 @@ export async function runImport(db,uid,id,attempt) {
     if(!saved&&imagePath)await getStorage().bucket().file(imagePath).delete({ignoreNotFound:true});
   }catch(error){const latest=await ref.get();if(latest.exists&&latest.data()?.status!=='canceled'&&latest.data()?.attempt===attempt)await ref.update({status:'failed',message:error.message==='Import canceled.'?error.message:'This import could not finish. Retry, or add the recipe text.',failurePoint:latest.data()?.message??latest.data()?.status??'Import',extractionReason:error.message?.slice(0,1000)??'Import failed.',finishedAt:Date.now()});await releaseImport(db,uid,id,attempt);}
 }
-export async function handleCompanion(req,res,{db,auth}) {
+export async function handleCompanion(req,res,{db,auth,storage}) {
   try {
     if(req.method!=='POST'){send(res,405,{error:'Use POST.'});return;}
     const raw=await readBody(req),body=JSON.parse(raw);
@@ -337,7 +337,13 @@ export async function handleCompanion(req,res,{db,auth}) {
         if(old?.payload===payload)return {revision:old.revision};
         if((old?.revision??0)!==expectedRevision)return {conflict:true};
         tx.set(ref,{id,payload,revision:expectedRevision+1,updatedAt:Date.now(),finishedAt:session.finishedAt??null});return {revision:expectedRevision+1};
-      });send(res,result.conflict?409:200,result);return;
+      });
+      // Delete only the photo this client removed; a concurrent replacement has a new generation.
+      if(!result.conflict&&!result.deleted&&session.photoRemoved===true&&typeof session.photoGeneration==='string'&&/^[1-9]\d{0,29}$/.test(session.photoGeneration)) {
+        try {await (storage??getStorage()).bucket().file(`users/${uid}/cooks/${id}/dish.jpg`).delete({ignoreNotFound:true,ifGenerationMatch:session.photoGeneration});}
+        catch(error){if(Number(error.code)!==412)throw error;}
+      }
+      send(res,result.conflict?409:200,result);return;
     }
     if(req.url==='/companion/delete-account-data') {
       if(Date.now()/1000-identity.auth_time>300)throw new Error('Please sign in again before deleting your account.');

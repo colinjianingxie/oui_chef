@@ -6,12 +6,12 @@ import {handleCompanion} from './companion.mjs';
 test('shared recipe links copy content once, preserve recipient edits, and expose no private account state',async()=>{
   const records=new Map();
   const db={doc(path){return {path,get:async()=>({exists:records.has(path),data:()=>records.get(path)})};},runTransaction:async fn=>fn({get:ref=>ref.get(),set:(ref,value)=>records.set(ref.path,value)})};
-  const recipe={id:'private-id',title:'<script>alert("bread")</script>',summary:'A & B',sourceURL:'https://example.com/bread',sourceName:'Website',ingredients:[{id:'flour',name:'Flour',quantity:'500 g'}],steps:[{id:'rest',instruction:'Rest before folding.',durationSeconds:1800,ingredients:[]}],imagePath:'users/owner/private.jpg',modelRunID:'private-run',favorite:true,evidence:[{detail:'private evidence'}],messages:[{text:'private chat'}]};
+  const recipe={id:'private-id',title:'<script>alert("bread")</script>',summary:'A & B',sourceURL:'https://example.com/bread',sourceName:'Website',ingredients:[{id:'flour',name:'Flour',quantity:'500 g'}],steps:[{id:'rest',instruction:'Rest before folding.',durationSeconds:1800,ingredients:[]}],imagePath:'users/owner/private.jpg',modelRunID:'private-run',favorite:true,evidence:[{detail:'private evidence'}],messages:[{text:'private chat'}],personalizationProfile:{customAllergies:'private allergy'},portionBaseline:{servings:2,ingredients:[],steps:[]}};
   const share=await createRecipeShare(db,'owner',JSON.stringify(recipe));
   assert.match(share.url,new RegExp('^'+shareOrigin+'/r/[a-f0-9]{32}$'));
   assert.deepEqual(await createRecipeShare(db,'owner',JSON.stringify(recipe)),share);
   const id=share.url.split('/').at(-1),snapshot=JSON.parse(records.get('recipeLinks/'+id).payload);
-  for(const key of ['id','imagePath','modelRunID','messages'])assert.equal(snapshot[key],undefined);
+  for(const key of ['id','imagePath','modelRunID','messages','personalizationProfile'])assert.equal(snapshot[key],undefined);
   assert.equal(snapshot.favorite,false);assert.deepEqual(snapshot.evidence,[]);
   const first=await receiveRecipeShare(db,'recipient',id),copy=JSON.parse(first.payload);
   assert.equal(copy.id,'shared-'+id);assert.deepEqual(copy.steps,recipe.steps);

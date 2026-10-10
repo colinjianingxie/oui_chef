@@ -27,6 +27,10 @@ struct CompanionRecipe: Codable, Identifiable, Equatable {
     var reviewed = false
     var createdAt: Double = Date().timeIntervalSince1970 * 1000
     var version = 1
+    var archived: Bool?
+    var portionBaseline: RecipePortions?
+    var originalSource: OriginalRecipeSource?
+    var personalizationProfile: CookProfile?
 
     var timeLabel: String { totalMinutes.map { $0 >= 60 ? "\($0 / 60) hr\($0 % 60 == 0 ? "" : " \($0 % 60) min")" : "\($0) min" } ?? "Go by the cues" }
     var youtubeThumbnailURL: URL? { Self.youtubeThumbnailURL(for: sourceURL) }
@@ -44,6 +48,7 @@ struct CompanionRecipe: Codable, Identifiable, Equatable {
     }
     var stages: [String] { steps.reduce(into: []) { if !$0.contains($1.stage) { $0.append($1.stage) } } }
     func validate() throws {
+        guard try JSONEncoder().encode(self).count <= 180000 else { throw CookingError.invalid("This recipe is too large to save. Try importing a shorter source.") }
         guard !id.isEmpty, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               (1...150).contains(ingredients.count), (1...150).contains(steps.count),
               Set(ingredients.map(\.id)).count == ingredients.count, Set(steps.map(\.id)).count == steps.count else {
@@ -55,6 +60,7 @@ struct CompanionRecipe: Codable, Identifiable, Equatable {
         }
         for step in steps {
             guard !step.instruction.isEmpty, Set(step.ingredients.map(\.ingredientID)).isSubset(of: ids),
+                  step.ingredients.allSatisfy({ $0.amount == nil || ($0.amount!.isFinite && $0.amount! > 0) }),
                   step.durationSeconds == nil || (step.durationSeconds!.isFinite && (1...604800).contains(step.durationSeconds!)),
                   step.videoSeconds == nil || (step.videoSeconds!.isFinite && step.videoSeconds! >= 0) else { throw CookingError.invalid("A recipe step contains an invalid ingredient or timer.") }
         }
@@ -77,6 +83,8 @@ struct RecipeIngredient: Codable, Identifiable, Equatable {
 struct StepIngredient: Codable, Equatable {
     var ingredientID: String
     var quantity: String
+    var amount: Double?
+    var unit: String?
 }
 
 struct RecipeStep: Codable, Identifiable, Equatable {
@@ -136,7 +144,7 @@ struct RecipeImport: Codable, Identifiable, Equatable {
     var youtubeThumbnailURL: URL? { CompanionRecipe.youtubeThumbnailURL(for: url) }
     var running: Bool { ["queued", "fetching", "transcribing", "extracting", "checking"].contains(status) }
     var hasImportEvidence: Bool { sourceTitle != nil || sourceText != nil || retrieval != nil || recipeTitle != nil || originalTranscript != nil || translatedTranscript != nil || videoObservations != nil || previewIngredients != nil || failurePoint != nil }
-    static let stages = ["Read metadata & transcript", "Check for a food recipe", "Translate & inspect video", "Build ingredients & steps", "Save to your cookbook"]
+    static let stages = ["Opening the source", "Checking the recipe", "Reading the instructions", "Gathering ingredients & steps", "Saving to your cookbook"]
     var progressStage: Int {
         if let stage { return max(0, min(stage, Self.stages.count)) }
         switch status {
@@ -198,6 +206,14 @@ struct CookAttempt: Codable, Identifiable, Equatable {
     var photoPath: String?
     var guidancePaused = false
     var deliveredReminders: [String] = []
+    var preparation: CookingPreparation?
+    var profileSnapshot: CookProfile?
+    var cookingStartedAt: Double?
+    var lastOpenedAt: Double?
+    var photoRemoved: Bool?
+    var photoGeneration: String?
+
+    var isPreparing: Bool { preparation?.readyAt == nil && preparation != nil && finishedAt == nil }
 
     var currentStep: RecipeStep { recipe.steps[min(max(0, focusIndex), recipe.steps.count - 1)] }
     var finishedSteps: Int { Set(completed + skipped).count }
@@ -209,10 +225,28 @@ struct CookAttempt: Codable, Identifiable, Equatable {
         guard !events.contains(where: { $0.id == action.id }) else { return }
         guard action.revision == revision else { throw CookingError.invalid("The cooking state changed. Please try again.") }
         guard finishedAt == nil else { throw CookingError.invalid("This attempt is finished. Start a new cook to make it again.") }
+        if isPreparing && !["begin_cooking", "check_ingredient", "check_equipment", "review_recipe", "record_change", "pause_guidance", "resume_guidance"].contains(action.operation) {
+            throw CookingError.invalid("Finish your preparation before starting this cooking action.")
+        }
         let target = action.target ?? currentStep.id
         let step = recipe.steps.first { $0.id == target }
         var detail = action.text ?? ""
         switch action.operation {
+        case "check_ingredient":
+            guard isPreparing, recipe.ingredients.contains(where: { $0.id == target }) else { throw CookingError.invalid("Choose an ingredient in this preparation.") }
+            if preparation!.ingredientIDs.contains(target) { preparation!.ingredientIDs.removeAll { $0 == target } }
+            else { preparation!.ingredientIDs.append(target) }
+        case "check_equipment":
+            guard isPreparing, recipe.equipment.contains(target) else { throw CookingError.invalid("Choose a tool in this preparation.") }
+            if preparation!.equipment.contains(target) { preparation!.equipment.removeAll { $0 == target } }
+            else { preparation!.equipment.append(target) }
+        case "review_recipe":
+            guard isPreparing else { throw CookingError.invalid("Open preparation to review this recipe.") }
+            preparation!.reviewedVersion = action.text == "accepted" ? recipe.version : nil
+        case "begin_cooking":
+            guard isPreparing else { return }
+            guard recipe.reviewNotes.isEmpty || preparation?.reviewedVersion == recipe.version else { throw CookingError.invalid("Review the recipe notes before cooking.") }
+            preparation!.readyAt = now; cookingStartedAt = now
         case "complete_step", "skip_step", "reopen_step":
             guard let step else { throw CookingError.invalid("Choose a recipe step.") }
             if action.operation == "reopen_step" {
@@ -238,9 +272,13 @@ struct CookAttempt: Codable, Identifiable, Equatable {
             timers.append(AttemptTimer(id: action.id, stepID: step.id, label: action.text?.isEmpty == false ? action.text! : step.title,
                 cue: step.visualCue ?? "Check whether this step is ready.", startedAt: now, deadline: now + seconds * 1000, additional: action.additional))
             detail = "\(step.title): \(Int(seconds)) seconds"
-        case "pause_timer", "resume_timer", "extend_timer", "cancel_timer", "acknowledge_timer":
+        case "pause_timer", "resume_timer", "extend_timer", "cancel_timer", "acknowledge_timer", "rename_timer":
             guard let index = timers.firstIndex(where: { $0.id == target && !$0.acknowledged }) else { throw CookingError.invalid("Choose an active timer.") }
-            if action.operation == "pause_timer" {
+            if action.operation == "rename_timer" {
+                let label = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty, label.count <= 100 else { throw CookingError.invalid("Name your timer in 1–100 characters.") }
+                timers[index].label = label
+            } else if action.operation == "pause_timer" {
                 guard timers[index].pausedSeconds == nil else { return }
                 timers[index].pausedSeconds = timers[index].remaining(at: now)
             } else if action.operation == "resume_timer" {

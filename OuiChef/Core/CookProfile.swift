@@ -61,6 +61,7 @@ enum PreferenceSection: String, Identifiable, CaseIterable {
         PreferenceOption(id: "no_alcohol", name: "No alcohol")
     ]
     static let equipmentOptions = [
+        PreferenceOption(id: "stovetop", name: "Stovetop"),
         PreferenceOption(id: "oven", name: "Oven"), PreferenceOption(id: "microwave", name: "Microwave"),
         PreferenceOption(id: "air_fryer", name: "Air fryer"), PreferenceOption(id: "blender", name: "Blender"),
         PreferenceOption(id: "food_processor", name: "Food processor"), PreferenceOption(id: "stand_mixer", name: "Stand mixer"),
@@ -76,6 +77,10 @@ enum AllergyStatus: String, Codable { case unspecified, noneKnown, selected }
 
 struct CookProfile: Codable, Equatable {
     var onboardingComplete = false
+    var onboardingStep = 0
+    var customAllergies = ""
+    var customRestrictions = ""
+    var spokenAnswers = true
     var diet = "Everything"
     var allergyIDs: Set<String> = []
     var restrictionIDs: Set<String> = []
@@ -104,17 +109,18 @@ struct CookProfile: Codable, Equatable {
     }
     mutating func select(_ ids: Set<String>, for section: PreferenceSection) {
         switch section {
-        case .allergies: allergyIDs = ids; allergyStatus = ids.isEmpty ? .unspecified : .selected
+        case .allergies: allergyIDs = ids; allergyStatus = ids.isEmpty && customAllergies.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .unspecified : .selected
         case .restrictions: restrictionIDs = ids
         case .dislikes: dislikedFoodIDs = ids
         case .equipment: equipmentIDs = ids
         }
     }
-    mutating func setNoKnownAllergies() { allergyIDs = []; allergyStatus = .noneKnown }
+    mutating func setNoKnownAllergies() { allergyIDs = []; customAllergies = ""; allergyStatus = .noneKnown }
     var needsPreferenceReview: Bool { !previousPreferencesPendingReview.isEmpty }
     init() {}
 
     private enum CodingKeys: String, CodingKey {
+        case onboardingStep, customAllergies, customRestrictions, spokenAnswers
         case profileVersion, onboardingComplete, diet, allergyIDs, restrictionIDs, dislikedFoodIDs, equipmentIDs, allergyStatus
         case spice, salt, experience, servings, householdSize, units, voiceLanguage, keepAwake, gentleGuidance, previousPreferencesPendingReview
         case allergies, restrictions, dislikes, equipment
@@ -123,6 +129,10 @@ struct CookProfile: Codable, Equatable {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         onboardingComplete = try c.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? false
+        onboardingStep = min(2, max(0, try c.decodeIfPresent(Int.self, forKey: .onboardingStep) ?? 0))
+        customAllergies = try c.decodeIfPresent(String.self, forKey: .customAllergies) ?? ""
+        customRestrictions = try c.decodeIfPresent(String.self, forKey: .customRestrictions) ?? ""
+        spokenAnswers = try c.decodeIfPresent(Bool.self, forKey: .spokenAnswers) ?? true
         diet = try c.decodeIfPresent(String.self, forKey: .diet) ?? "Everything"
         allergyIDs = try c.decodeIfPresent(Set<String>.self, forKey: .allergyIDs) ?? []
         restrictionIDs = try c.decodeIfPresent(Set<String>.self, forKey: .restrictionIDs) ?? []
@@ -130,7 +140,8 @@ struct CookProfile: Codable, Equatable {
         equipmentIDs = try c.decodeIfPresent(Set<String>.self, forKey: .equipmentIDs) ?? []
         allergyStatus = try c.decodeIfPresent(AllergyStatus.self, forKey: .allergyStatus) ?? .unspecified
         if !allergyIDs.isEmpty { allergyStatus = .selected }
-        if allergyIDs.isEmpty && allergyStatus == .selected { allergyStatus = .unspecified }
+        if allergyIDs.isEmpty && customAllergies.isEmpty && allergyStatus == .selected { allergyStatus = .unspecified }
+        if !customAllergies.isEmpty { allergyStatus = .selected }
         spice = try c.decodeIfPresent(String.self, forKey: .spice) ?? "Medium"
         salt = try c.decodeIfPresent(String.self, forKey: .salt) ?? "Balanced"
         experience = try c.decodeIfPresent(String.self, forKey: .experience) ?? "Home cook"
@@ -154,6 +165,10 @@ struct CookProfile: Codable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(2, forKey: .profileVersion)
         try c.encode(onboardingComplete, forKey: .onboardingComplete)
+        try c.encode(onboardingStep, forKey: .onboardingStep)
+        try c.encode(customAllergies, forKey: .customAllergies)
+        try c.encode(customRestrictions, forKey: .customRestrictions)
+        try c.encode(spokenAnswers, forKey: .spokenAnswers)
         try c.encode(diet, forKey: .diet)
         try c.encode(allergyIDs.sorted(), forKey: .allergyIDs)
         try c.encode(restrictionIDs.sorted(), forKey: .restrictionIDs)
