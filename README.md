@@ -10,7 +10,7 @@ Open **OuiChef.xcodeproj**, choose **OuiChef**, select an iPhone or simulator, a
 
 See [the companion design and implementation](docs/COMPANION_REDESIGN.md) for the complete import pipeline, data model, provider tracking, beta limits, and deployment requirements. [TestFlight release records](docs/TESTFLIGHT.md) contain build receipts and archive locations.
 
-The implemented [Berry / Deep Plum design migration](docs/BERRY_PLUM_MIGRATION.md) covers the October 2026 design boards and revised 16-screen specification, including inline voice, persistent preparation, reversible portions, cooking memories, data compatibility, and remaining release checks. This migration is local; it has not been deployed.
+The implemented [Berry / Deep Plum design migration](docs/BERRY_PLUM_MIGRATION.md) covers the October 2026 design boards and revised 16-screen specification, including inline voice, persistent preparation, reversible portions, cooking memories, data compatibility, and remaining release checks. The app is uploaded as TestFlight **1.0 (17)**; its matching backend changes remain undeployed. See the [release record](docs/TESTFLIGHT.md).
 
 ## Product flow
 

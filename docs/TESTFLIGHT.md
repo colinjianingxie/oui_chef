@@ -1,5 +1,18 @@
 # TestFlight
 
+## October 10, 2026 — Berry / Deep Plum redesign, build 17
+
+Oui Chef AI **1.0 (17)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **23:54:10 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's upload receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).
+
+Source commit: `4e5d5557d8152b7647e9bbb7476db2193ea7f671`, pushed to `main`. Upload ID: `26b1b7e3-20b4-499c-9cb7-dac0286a3b06`. This build introduces the cream/plum editorial design, one consistent chef mascot, resumable onboarding and preparation, import/resume-led Home, inline cooking voice and replies, reversible portion adjustments, independent timers, and optional cooking memories. The retired catalog screens and separate full-screen voice flow are removed. [Implementation, screenshots, and remaining limits](BERRY_PLUM_MIGRATION.md).
+
+Validation reused the same tested source: 45 Swift core tests, 41 backend tests, and 16 simulator UI scenarios passed across the initial run and focused reruns; three emulator-dependent checks were skipped. A signed Release archive and strict app/Share Extension signature verification passed with Xcode 26.6. All archive inputs were compared byte-for-byte with the workspace; compilation used `/private/tmp/ouichef-plum-local` to avoid Desktop iCloud evictions. Git's staged whitespace check also passed before committing. No new paid AI checks ran.
+
+Archive, app dSYM, and Share Extension dSYM: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-10/OuiChef-1.0-berry-4e5d555.xcarchive`. Sanitized receipt: `/Users/xie/Library/Developer/Xcode/Archives/2026-10-10/OuiChef-1.0-17-upload-receipt.json`, also retained at `.build/testflight-20261010-berry/upload-receipt.json`. Xcode assigned upload build 17; source/archive settings remain 1.0 (2). The five existing missing-dSYM warnings for FirebaseFirestoreInternal, absl, grpc, grpcpp, and openssl_grpc remain. Upload succeeded and app/extension symbols are preserved; crash frames inside those dependencies may have limited symbols.
+
+The matching backend changes are committed and pushed but **not deployed**. New extraction source snapshots, recipe-less Home questions, voice timer rename, and generation-guarded photo cleanup require that backend deployment before end-to-end testing. Legal URLs remain unset, and real-device audio/camera/background behavior and live authentication still need validation. No tester assignments, beta-review submissions, or App Store release submissions were changed.
+
+
 ## October 3, 2026 — recipe sharing and swipe deletion, build 16
 
 Oui Chef AI **1.0 (16)** (`com.xie.ouichef`, team `84KXUNPGCM`) uploaded successfully at **20:46:45 UTC**. Xcode reported **Upload succeeded / EXPORT SUCCEEDED**. Apple's receipt is **PROCESSING**, with no record-level errors or warnings; tester availability is not yet verified. [App Store Connect](https://appstoreconnect.apple.com/apps/6812917370/testflight/ios).

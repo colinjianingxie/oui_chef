@@ -2,7 +2,7 @@
 
 Implementation and migration record · October 10, 2026
 
-This migration follows the revised 16-screen specification and the four boards in `/Users/xie/Downloads/new_designs/`. The redesign is implemented locally in SwiftUI. The baseline assessment and migration decisions below explain the changes; the implementation status here distinguishes completed work from release validation. Existing files in `designs/design-review-2026-10-04/` are unchanged. No backend, rules, hosting, or TestFlight deployment was performed.
+This migration follows the revised 16-screen specification and the four boards in `/Users/xie/Downloads/new_designs/`. The redesign is implemented in SwiftUI. The baseline assessment and migration decisions below explain the changes; the implementation status here distinguishes completed work from release validation. Existing files in `designs/design-review-2026-10-04/` are unchanged. The app was uploaded as TestFlight **1.0 (17)**; Apple is processing it. No backend, rules, or hosting deployment was performed. See the [release receipt](TESTFLIGHT.md#october-10-2026--berry--deep-plum-redesign-build-17).
 
 
 ## Implementation status
@@ -28,11 +28,11 @@ Validation on October 10, 2026:
 | Swift core suite | 45 passed | Includes 11 migration checks for resumable preparation, old-session decoding, scaling/reset, source restoration, current preferences, timer rename, and invalid/oversized data. |
 | Backend suite | 41 passed; 3 skipped | Includes source snapshots, general cooking help without a recipe, guarded photo deletion, and private-state exclusion from shared recipes. The three emulator-dependent checks were not run. |
 | iOS simulator UI | 16 scenarios passed across the initial run and focused reruns | Welcome/email entry, onboarding, all tabs, URL/text entry, import progress/review, serving-review cancellation, archive/delete, sharing, checklist recovery, timers, optional memories, cook-again, inline voice/replies, manual fallback, and maximum accessibility text size. |
-| Native build | Debug simulator build passed | Xcode 26.6, iOS 26.5 simulator, code signing disabled. No archive or upload. |
+| Native build | Debug simulator build and signed Release archive passed | Xcode 26.6; app and Share Extension signatures verified. TestFlight 1.0 (17) uploaded successfully and is processing. |
 
 The UI tests use explicit offline fixtures. They exercise the real SwiftUI controls and local cooking transitions, while authentication, extraction, and voice-provider responses are not live. The largest-text check includes a geometry assertion that the Next label stays inside its button; the rendered screenshot was also reviewed.
 
-The Desktop checkout and Git objects were intermittently evicted by iCloud while the Mac was low on disk space. Native verification therefore ran from a source copy at `/private/tmp/ouichef-plum-local`, with build output at `/private/tmp/ouichef-plum-derived`. Changed app/configuration/UI-test files were compared byte-for-byte with the workspace. Original restored assets were checked against their Git blob hashes. No original recipe data or unrelated design files were removed. A full `git diff --check` stalled on evicted Git objects; the changed text files passed a direct whitespace check. The source checkout and temporary build both remain available; iCloud may need to finish downloading other untouched files before a fresh build from Desktop.
+The Desktop checkout and Git objects were intermittently evicted by iCloud while the Mac was low on disk space. Native verification therefore ran from a source copy at `/private/tmp/ouichef-plum-local`, with build output at `/private/tmp/ouichef-plum-derived`. Changed app/configuration/UI-test files were compared byte-for-byte with the workspace. Original restored assets were checked against their Git blob hashes. No original recipe data or unrelated design files were removed. The initial full `git diff --check` stalled on evicted Git objects; after hydration and removal of a verified stale lock, the full staged check passed before committing. The source checkout and temporary build both remain available; iCloud may need to finish downloading other untouched files before a fresh build from Desktop.
 
 Review captures are in [designs/berry-plum-implementation](../designs/berry-plum-implementation/). They show the implemented app, with sample recipe content:
 
